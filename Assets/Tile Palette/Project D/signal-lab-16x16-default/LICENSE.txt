@@ -1,0 +1,21 @@
+SIGNAL LAB 16X16 PACK LICENSE
+
+This pack contains original pixel-art sprites generated algorithmically for this product.
+
+Permitted use:
+- Use, edit, recolor and combine the sprites in personal and commercial games and software.
+- Use the sprites in client projects.
+- Crop, animate and integrate the sprites into any game engine.
+
+Not permitted:
+- Resell, redistribute or share the source files as a standalone asset pack.
+- Upload the unchanged files to another marketplace.
+- Claim authorship of the original source files.
+
+The buyer receives a non-exclusive, worldwide, perpetual license.
+
+AI disclosure:
+- The artwork was generated algorithmically with generative AI assistance.
+- No third-party images, trademarks, logos, celebrity likenesses or protected characters were used.
+
+No guarantee of sales, downloads, platform acceptance or income is provided.
