@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 13b75c95f34a00d4e8c04f76b73312e6, type: 3}
+  m_Name: Traps
+  m_EditorClassIdentifier: Unity.2D.Tilemap.Extras::UnityEngine.Tilemaps.AnimatedTile
+  m_AnimatedSprites:
+  - {fileID: -5278356071157534689, guid: 954ed1680cc885e4b8300cb34c545e14, type: 3}
+  - {fileID: -5278356071157534689, guid: 954ed1680cc885e4b8300cb34c545e14, type: 3}
+  - {fileID: -5278356071157534689, guid: 954ed1680cc885e4b8300cb34c545e14, type: 3}
+  - {fileID: -5278356071157534689, guid: 954ed1680cc885e4b8300cb34c545e14, type: 3}
+  - {fileID: 138043921, guid: 954ed1680cc885e4b8300cb34c545e14, type: 3}
+  - {fileID: 2011356807, guid: 954ed1680cc885e4b8300cb34c545e14, type: 3}
+  - {fileID: -1328084086, guid: 954ed1680cc885e4b8300cb34c545e14, type: 3}
+  - {fileID: 1061493263, guid: 954ed1680cc885e4b8300cb34c545e14, type: 3}
+  - {fileID: -1624526947, guid: 954ed1680cc885e4b8300cb34c545e14, type: 3}
+  - {fileID: 300514033, guid: 954ed1680cc885e4b8300cb34c545e14, type: 3}
+  - {fileID: 300514033, guid: 954ed1680cc885e4b8300cb34c545e14, type: 3}
+  - {fileID: -1328084086, guid: 954ed1680cc885e4b8300cb34c545e14, type: 3}
+  - {fileID: -1020222912, guid: 954ed1680cc885e4b8300cb34c545e14, type: 3}
+  - {fileID: -5278356071157534689, guid: 954ed1680cc885e4b8300cb34c545e14, type: 3}
+  m_MinSpeed: 8
+  m_MaxSpeed: 8
+  m_AnimationStartTime: 0
+  m_AnimationStartFrame: 0
+  m_TileColliderType: 0
+  m_TileAnimationFlags: 0

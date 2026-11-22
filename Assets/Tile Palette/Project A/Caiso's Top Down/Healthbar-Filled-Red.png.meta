@@ -1,5 +1,5 @@
 fileFormatVersion: 2
-guid: 335839a805970dc4f8bbb53f1f0286a3
+guid: a7402cadd2bea7d48b29f4e001bdec66
 AssetOrigin:
   serializedVersion: 1
   productId: 248090
@@ -8,7 +8,10 @@ AssetOrigin:
   assetPath: Assets/Ilumisoft/Health System/Textures/Healthbar-Filled-Red.png
   uploadId: 571247
 TextureImporter:
-  internalIDToNameTable: []
+  internalIDToNameTable:
+  - first:
+      213: -4218430268565726986
+    second: Healthbar-Filled-Red_0
   externalObjects: {}
   serializedVersion: 13
   mipmaps:
@@ -130,7 +133,29 @@ TextureImporter:
     forceMaximumCompressionQuality_BC6H_BC7: 0
   spriteSheet:
     serializedVersion: 2
-    sprites: []
+    sprites:
+    - serializedVersion: 2
+      name: Healthbar-Filled-Red_0
+      rect:
+        serializedVersion: 2
+        x: 0
+        y: 0
+        width: 700
+        height: 60
+      alignment: 0
+      pivot: {x: 0, y: 0}
+      border: {x: 0, y: 0, z: 0, w: 0}
+      customData: 
+      outline: []
+      physicsShape: []
+      tessellationDetail: -1
+      bones: []
+      spriteID: 6f8526c55002575c0800000000000000
+      internalID: -4218430268565726986
+      vertices: []
+      indices: 
+      edges: []
+      weights: []
     outline: []
     customData: 
     physicsShape: []
