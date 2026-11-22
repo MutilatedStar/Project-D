@@ -89,6 +89,12 @@ namespace Cainos.PixelArtTopDown_Basic
     ///                taken by something solid, the fall waits (up to "Blocked Landing Seconds") for it to clear. Landing can hurt ("Fall Damage").
     ///                FallTo(level) starts a fall from code (a trapdoor, a bridge that gives way).
     ///
+    /// ENGINE       The levels and the fall are shared with the rest of the game. TopDownLevelWorld holds the ladder of levels and the fall numbers for EVERYTHING,
+    ///              and TopDownFaller does the same fall for foes, crates and items. Tick "Use World Settings" and the player takes the levels and the fall numbers
+    ///              from the world (and from a TopDownLevelToggle on this object, if it has one) instead of from this component. Left OFF, the values here are used
+    ///              exactly as before. The jump itself (height, duration, what it can jump over or onto) always stays here. Because this component answers to
+    ///              ILevelFaller, a TopDownDropZone and TopDownLevelWorld.DropAllTo can drop the player like anything else.
+    ///
     /// TopDownCharacterController asks for the jump (TryJump) and reads IsInAir / SpeedMultiplier. This component does the rest.
     /// Needs CoopHealth.cs (the Airborne flag) and the player's solid (non-trigger) collider on this object or a child.
     ///
@@ -98,7 +104,7 @@ namespace Cainos.PixelArtTopDown_Basic
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(Rigidbody2D))]
-    public class TopDownJump : MonoBehaviour
+    public class TopDownJump : MonoBehaviour, ILevelFaller
     {
         // ------------------------------------------------------------ inspector
 
@@ -182,6 +188,13 @@ namespace Cainos.PixelArtTopDown_Basic
         [SerializeField, Min(0.5f)] private float scanRadius = 1.25f;
         [Tooltip("A landing that is blocked (inside something solid) keeps the player gliding at ground height this long, then sends them back to where the jump started.")]
         [SerializeField, Min(0.1f)] private float blockedLandingSeconds = 1f;
+
+        [Header("Engine: share the levels and the fall with the rest of the game")]
+        [Tooltip("OFF: the Levels and every Fall number in this component are used, exactly as before. " +
+                 "ON: they come from the TopDownLevelWorld in the scene instead (and from a TopDownLevelToggle on this object, if it has one): the same numbers every foe, crate and item uses. " +
+                 "What is typed here for them is then ignored. Fall When Unsupported and Unsupported Delay do not apply to the player, which falls by the rules of its own jump. " +
+                 "The jump itself (height, duration, Jump Over / Jump On, draw order) always stays here.")]
+        [SerializeField] private bool useWorldSettings = false;
 
         [Header("Debug")]
         [Tooltip("Prints, once at the start, the Jump keys this player really answers to and where they come from. Switch it off once the keys are right. " +
@@ -343,6 +356,22 @@ namespace Cainos.PixelArtTopDown_Basic
         private const int ShadowTextureHeight = 8;
         private const float ShadowPixelsPerUnit = 16f;
 
+        /// <summary>The small pixel shadow every jump uses, made once. TopDownFaller draws its fall shadow with the same sprite.</summary>
+        public static Sprite SharedShadowSprite
+        {
+            get
+            {
+                if (madeShadowSprite == null) madeShadowSprite = CreateShadowSprite();
+                return madeShadowSprite;
+            }
+        }
+
+        /// <summary>The size of that shadow sprite in world units, before any scaling.</summary>
+        public static Vector2 SharedShadowNaturalSize
+        {
+            get { return new Vector2(ShadowTextureWidth / ShadowPixelsPerUnit, ShadowTextureHeight / ShadowPixelsPerUnit); }
+        }
+
         // ------------------------------------------------------------ setup
 
         private void Awake()
@@ -359,6 +388,7 @@ namespace Cainos.PixelArtTopDown_Basic
             BuildSpriteProxy();
             BuildShadow();
             ResolveNeverDrawOver();
+            if (useWorldSettings) ApplyWorldSettings();   // before BuildLevels: it reads Levels
             BuildLevels();
 
             jumpOver.Prepare(name, this);
@@ -400,12 +430,45 @@ namespace Cainos.PixelArtTopDown_Basic
         private void OnEnable()
         {
             FloorController.FloorChanged += HandleFloorChanged;
+            TopDownLevelWorld.Register(this);   // so TopDownLevelWorld.DropAllTo reaches the player too
         }
 
         private void OnDisable()
         {
             FloorController.FloorChanged -= HandleFloorChanged;
+            TopDownLevelWorld.Unregister(this);
             ResetToGround();
+        }
+
+        // "Use World Settings": the levels and every Fall number come from the TopDownLevelWorld (and a TopDownLevelToggle on this object), the same as for
+        // everything else that falls. Level 0 of the world's ladder is the ground, which for the player is simply the layers it starts on, so only the
+        // levels above it are copied into Levels. Nothing about the jump itself changes here.
+        private void ApplyWorldSettings()
+        {
+            TopDownLevelWorld world = TopDownLevelWorld.Active;
+            if (world == null) return;
+
+            TopDownLevelToggle toggle = GetComponent<TopDownLevelToggle>();
+            FallSettings settings = world.SettingsFor(gameObject, toggle);
+
+            int count = world.LevelCount;
+            if (count > 1)
+            {
+                levels = new JumpLevel[count - 1];
+                for (int i = 1; i < count; i++)
+                {
+                    WorldLevel step = world.LevelAt(i);
+                    levels[i - 1] = new JumpLevel { physicsLayer = step.physicsLayer, sortingLayer = step.sortingLayer };
+                }
+            }
+
+            fallEnabled = world.ShouldFall(gameObject, toggle) && settings.fallEnabled;
+            fallSecondsPerLevel = settings.fallSecondsPerLevel;
+            fallDamage = settings.fallDamage;
+            fallDamagePerLevel = settings.damagePerLevel;
+            safeFallLevels = settings.safeFallLevels;
+            heightPerLevel = settings.heightPerLevel;
+            blockedLandingSeconds = settings.blockedLandingSeconds;
         }
 
         // A door or the Shop moved the player: whatever they were jumping over or standing on is somewhere else now.
