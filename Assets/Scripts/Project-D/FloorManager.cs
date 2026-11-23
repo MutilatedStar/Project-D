@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Tilemaps;
 using Ilumisoft.HealthSystem;
+using Cainos.PixelArtTopDown_Basic;
 
 /// <summary>
 /// The foe side of the floor system. FloorController owns the floor NUMBER (doors, Shop trip, black screen,
@@ -32,21 +33,29 @@ using Ilumisoft.HealthSystem;
 /// first entry in FoeSpawner's "levels" list. Past the last entry the spawner reuses the last list.
 /// The floor a run STARTS on is FloorController's "Starting Floor" field.
 ///
-/// Going down also HEALS every player that counts (Heal On Descent, 10% of max health by default).
+/// Going down also HEALS every player that counts (Heal On Descent, 10% of max health by default) and the run has an END: when the floor
+/// number goes past "Last Floor", no new floor is built and EndScreens loads the Ending scene instead.
 ///
-/// HAZARD TILES: it also reads the tile under each player, by player NUMBER, and hurts them:
-///   electric  any tile with "electric" in its name (tile asset OR sprite) hurts the players listed in "Electric Hurts" (every player by
-///             default): 5 damage every half second while they stand on it, the same rate lava and water used to hurt at. The first
-///             tick is the moment they step on it. Players are hurt through CoopHealth.ApplyDamage, so Invincible and the CoopRules
-///             (Shared Damage, Single Player Mode) still apply. The damage number is the MEDIUM value: every hit is multiplied by
-///             DifficultyRules.TrapDamageScale (Easy x0.5, Medium x1, Hard x2; PVP always counts as Easy).
-///   Lava, water and spikes are gone: they no longer hurt anybody.
+/// HAZARD TILES: it also reads the tile under each player, by player NUMBER:
+///   lava      does NO damage. Standing on a tile with "lava" in its name turns the player's sprite red, a little more every second.
+///             When the sprite is fully red the player DIES. Off the lava the red fades again, and it keeps fading while the player is
+///             jumping (a hop over lava, or off it, is a way to cool down). Hurts the players listed in "Lava Hurts" (Player 1, blue, by default).
+///   water     hurts the players listed in "Water Hurts" (Player 2, orange, by default) MORE than electricity does (10 per tick against 5) and
+///             SLOWS them down while they are in it (and for a moment after). Any tile with "water" in its name.
+///   electric  any tile with "electric" in its name hurts the players listed in "Electric Hurts" (every player by default): 5 damage every
+///             half second while they stand on it. The first tick is the moment they step on it.
+///   Spikes are gone: they no longer exist as a hazard here.
 ///
-/// A player who is jumping (CoopHealth.Airborne) is skipped: they fly over electric tiles. The moment they land, the tile under them is read again.
+///   Water and electricity hurt through CoopHealth.ApplyDamage, so Invincible and the CoopRules (Shared Damage, Single Player Mode) still apply.
+///   Their damage numbers are the MEDIUM values: every hit is multiplied by DifficultyRules.TrapDamageScale (Easy x0.5, Medium x1, Hard x2; PVP
+///   always counts as Easy). Lava has no damage number; the same scale changes how FAST the red builds instead.
 ///
-/// HazardTileFx (a separate script on its own object) gives those same electric tiles their sparks, glow and zap sounds. It reads the
-/// tile name, the Tilemaps and the foot point from here (see "hooks for HazardTileFx" below), so what sparks is exactly what shocks.
-/// This script does not need it, and it does not need this script's "Hazards Enabled" box ticked.
+/// A player who is jumping (CoopHealth.Airborne) is skipped by water and electricity: they fly over them. Lava is the exception on purpose:
+/// it is still read every frame, and since an airborne player is off the lava, the red fades. The moment they land, the tile under them is read again.
+///
+/// HazardTileFx (a separate script on its own object) gives those same tiles their effects (glow, sparks, hopping pieces, sounds). It reads the tile
+/// names, the Tilemaps and the foot point from here (see "hooks for HazardTileFx" below), so what glows is exactly what burns. This script does not
+/// need it, and it does not need this script's "Hazards Enabled" box ticked.
 ///
 /// Put this on an empty object and drag the FoeSpawner into "spawner". The spawner's "Auto Start" box is now ignored
 /// (this script starts the right level itself), so it no longer matters whether it is ticked.
@@ -60,6 +69,10 @@ public class FloorManager : MonoBehaviour
 
     /// <summary>Fires when the player arrives on a new floor (behind the black screen), with the NEW floor number. Also fires once at the start of the scene.</summary>
     public static event System.Action<int> OnFloorChanged;
+
+    /// <summary>Fires when the CURRENT floor is started over (RestartFloor, a Retry after the team was wiped). The floor number does not change,
+    /// so FloorChanged does not fire. The traps listen to this to put their tiles and timers back.</summary>
+    public static event System.Action OnFloorRestarted;
 
     /// <summary>Fires when the player has killed every foe on the floor (passes the floor number).</summary>
     public event System.Action<int> OnFloorCleared;
@@ -79,28 +92,56 @@ public class FloorManager : MonoBehaviour
     [Tooltip("Optional, for floors built from prefabs: floor pieces with a Collider2D (trigger is fine) on this layer. Nothing = off.")]
     [SerializeField] private LayerMask floorMask = 0;
 
-    [Header("Going down: healing")]
+    [Header("Going down: healing and the last floor")]
+    [Tooltip("The final floor of the run. Going down from it (a door) ends the run (Ending scene) instead of building another floor.")]
+    [SerializeField, Min(1)] private int lastFloor = 4;
     [Tooltip("Fraction of each player's MAX health restored each time the floor number goes up. 0.1 = 10%. 0 = no healing.")]
     [SerializeField, Range(0f, 1f)] private float healOnDescent = 0.1f;
+    [Tooltip("Leave empty to find the EndScreens in the scene. It loads the Ending scene on a win (and the Failure Ending scene when health hits zero).")]
+    [SerializeField] private EndScreens endScreens;
 
-    [Header("Hazard tiles (electric)")]
-    [Tooltip("Master switch for electric tiles.")]
+    [Header("Hazard tiles (lava, water, electric)")]
+    [Tooltip("Master switch for lava, water and electricity.")]
     [SerializeField] private bool hazardsEnabled = true;
     [Tooltip("Tilemaps to check for hazard tiles. Leave EMPTY to check every Tilemap in the scene (re-checked once a second).")]
     [SerializeField] private Tilemap[] hazardTilemaps;
     [Tooltip("Where on each player the tile is read, as an offset from the middle of that player's collider (world units). Nudge this until it sits at their feet.")]
     [SerializeField] private Vector2 hazardCheckOffset = Vector2.zero;
-    [Tooltip("Seconds between damage ticks while a player stands on an electric tile they are hurt by. The first tick is the moment they step on it.")]
+    [Tooltip("Seconds between damage ticks while a player stands in water or on electricity they are hurt by. The first tick is the moment they step on it. Lava has no ticks.")]
     [SerializeField, Min(0.05f)] private float hazardTickSeconds = 0.5f;
-    [Tooltip("Prints a Console line every time a hazard hurts a player, with the tile and sprite names, so a wrong hit can be traced.")]
+    [Tooltip("Prints a Console line every time a hazard hurts or kills a player, with the tile and sprite names, so a wrong hit can be traced.")]
     [SerializeField] private bool logHazards = true;
+
+    [Header("Lava (no damage: the sprite turns red, and a fully red player dies)")]
+    [Tooltip("A tile counts as lava when its name (tile asset OR sprite) contains this. Capitals, spaces, dashes and underscores don't matter, so \"lava\" covers lava-16px_strip12_0 to _11.")]
+    [SerializeField] private string lavaName = "lava";
+    [Tooltip("Which players lava affects. Player 1 (blue) by default. Add 2, 3 or 4 if you want them affected too.")]
+    [SerializeField] private int[] lavaHurts = { 1 };
+    [Tooltip("Seconds standing on lava for the player to go from their normal colour to fully red, which kills them (Medium difficulty; Easy takes twice as long, Hard half as long).")]
+    [SerializeField, Min(0.1f)] private float lavaSecondsToDie = 2.5f;
+    [Tooltip("Seconds for a fully red player to cool back to their normal colour once they are OFF the lava. It also cools while they are jumping.")]
+    [SerializeField, Min(0.1f)] private float lavaCoolSeconds = 2f;
+    [Tooltip("The colour the sprite turns toward. It is blended over the player's own colour, so a fully heated player is exactly this colour.")]
+    [SerializeField] private Color lavaTint = new Color(1f, 0.1f, 0.1f, 1f);
+
+    [Header("Water (hurts more than electricity, and slows)")]
+    [Tooltip("A tile counts as water when its name (tile asset OR sprite) contains this, so \"water\" covers water-16px_strip8_0 to _7.")]
+    [SerializeField] private string waterName = "water";
+    [Tooltip("Which players water hurts and slows. Player 2 (orange) by default. Add 1, 3 or 4 if you want them affected too.")]
+    [SerializeField] private int[] waterHurts = { 2 };
+    [Tooltip("Damage per tick. Keep it ABOVE Electric Damage: water is meant to hurt more than electricity.")]
+    [SerializeField, Min(0f)] private float waterDamagePerTick = 10f;
+    [Tooltip("Walking speed while in water, as a fraction of normal (0.5 = half speed).")]
+    [SerializeField, Range(0.1f, 1f)] private float waterSlowFactor = 0.5f;
+    [Tooltip("How long the slow lasts after the last frame in water, so stepping out doesn't snap back to full speed. Kept short so the slow ends soon after they leave.")]
+    [SerializeField, Min(0.05f)] private float waterSlowSeconds = 0.25f;
 
     [Header("Electric")]
     [Tooltip("A tile counts as electric when its name (tile asset OR sprite) contains this. Capitals, spaces, dashes and underscores don't matter, so \"electric\" covers electric-16px_strip8_0 to _7.")]
     [SerializeField] private string electricName = "electric";
     [Tooltip("Which players electric tiles hurt. Everybody (1 to 4) by default. Take a number out to let that player walk on them safely.")]
     [SerializeField] private int[] electricHurts = { 1, 2, 3, 4 };
-    [Tooltip("Damage per tick. 5 every 0.5 seconds (Hazard Tick Seconds) is the rate lava and water used to hurt at.")]
+    [Tooltip("Damage per tick. 5 every 0.5 seconds (Hazard Tick Seconds).")]
     [SerializeField, Min(0f)] private float electricDamage = 5f;
 
     [Header("Stray foe check")]
@@ -124,17 +165,29 @@ public class FloorManager : MonoBehaviour
     private int handledFloor;   // the floor the spawner was last started for (0 = none yet), so one floor never starts twice
 
     private const int MaxPlayers = 4;
-    private readonly float[] nextTickTime = new float[MaxPlayers + 1];    // per player number: when electricity may hurt them next
+    private readonly float[] nextTickTime = new float[MaxPlayers + 1];    // per player number: when water / electricity may hurt them next
     private readonly Collider2D[] playerColliders = new Collider2D[MaxPlayers + 1];
     private readonly CoopHealth[] playerColliderOwners = new CoopHealth[MaxPlayers + 1];
     private Tilemap[] autoHazardMaps;
     private float nextHazardMapRefresh;
+
+    // Lava heat, per player number: 0 = normal colour, 1 = fully red = dead.
+    private readonly float[] lavaHeat = new float[MaxPlayers + 1];
+    private readonly SpriteRenderer[] lavaRenderer = new SpriteRenderer[MaxPlayers + 1];   // the renderer that is currently tinted
+    private readonly Color[] lavaBaseColor = new Color[MaxPlayers + 1];                     // its own colour, put back when the heat is gone
+    private readonly bool[] lavaTinted = new bool[MaxPlayers + 1];                          // true while we have changed that renderer's colour
+    private bool warnedNoLavaRenderer;
+
+    // Water slows through the character's own ApplySlow; the controller is looked up once per player.
+    private readonly TopDownCharacterController[] playerWalkers = new TopDownCharacterController[MaxPlayers + 1];
+    private readonly CoopHealth[] playerWalkerOwners = new CoopHealth[MaxPlayers + 1];
 
     // ------------------------------------------------------------ setup
 
     private void Awake()
     {
         if (spawner == null) spawner = FindAnyObjectByType<FoeSpawner>();
+        if (endScreens == null) endScreens = FindAnyObjectByType<EndScreens>();
 
         // Awake runs before every Start, so the spawner's own Auto Start can never start the wrong level over ours.
         if (spawner != null) spawner.ControlledExternally = true;
@@ -149,6 +202,12 @@ public class FloorManager : MonoBehaviour
                              "spawner will stay on floor " + CurrentFloor + ".", this);
         }
 
+        if (waterDamagePerTick <= electricDamage)
+        {
+            Debug.LogWarning("FloorManager: Water Damage Per Tick (" + waterDamagePerTick + ") is not above Electric Damage (" + electricDamage +
+                             "), but water is meant to hurt more than electricity.", this);
+        }
+
         if (spawner != null)
         {
             spawner.OnLevelCleared += HandleLevelCleared;
@@ -160,6 +219,13 @@ public class FloorManager : MonoBehaviour
 
         // From now on, every floor change (a door, Shop return, GoDownFloor()) comes through here.
         FloorController.FloorChanged += ApplyFloor;
+    }
+
+    // Switched off (or the scene is closing): nobody stays red. Destroyed players are skipped, their renderer is already gone.
+    private void OnDisable()
+    {
+        ResetAllLava();
+        for (int n = 1; n <= MaxPlayers; n++) ShowLavaHeat(n);
     }
 
     private void OnDestroy()
@@ -191,6 +257,15 @@ public class FloorManager : MonoBehaviour
         handledFloor = floor;
 
         invalidSince.Clear();
+        ResetAllLava();   // everybody arrives on a new floor cool
+
+        // Went down from the last floor: the run is won. No new level starts, and nothing listening to OnFloorChanged
+        // gets a floor number that has no data behind it.
+        if (floor > lastFloor)
+        {
+            WinRun();
+            return;
+        }
 
         // Healing only on a real step down. The first call of a scene (a fresh start, or back from the Shop) has no
         // previous floor, so it never heals.
@@ -199,6 +274,26 @@ public class FloorManager : MonoBehaviour
         if (spawner != null) spawner.StartLevel(floor - 1);   // StartLevel also clears any foe still left from the last floor
 
         OnFloorChanged?.Invoke(floor);
+    }
+
+    /// <summary>True while the player is on the final floor (going down from here is the victory).</summary>
+    public bool IsOnLastFloor => CurrentFloor >= lastFloor;
+
+    /// <summary>
+    /// Ends the run by loading the Ending scene (through EndScreens). Called automatically when the floor number goes past "Last Floor"; any script
+    /// can also call it directly (for example from a script on the last floor, to skip the extra black screen).
+    /// </summary>
+    public void WinRun()
+    {
+        // Ending the run from a script on the last floor skips the door's results screen, so that floor is saved as cleared here (its Level Select
+        // card too). When a door sent the team past the last floor the floor change is running and the room was already saved on the way down.
+        if (!FloorController.IsChangingFloor && CurrentFloor <= lastFloor) LevelResults.RecordRoomIfUnsaved(CurrentFloor);
+
+        ClearAllFoes();   // no score for these
+
+        if (endScreens == null) endScreens = FindAnyObjectByType<EndScreens>();
+        if (endScreens != null) endScreens.ShowVictory();
+        else Debug.LogWarning("FloorManager: the run is won but there is no EndScreens in the scene to load the Ending scene.", this);
     }
 
     // Restores a fraction of each living player's MAX health (so health upgrades from the Shop count). AddHealth clamps at max.
@@ -239,6 +334,8 @@ public class FloorManager : MonoBehaviour
     public void RestartFloor()
     {
         invalidSince.Clear();
+        ResetAllLava();   // a retry starts everybody cool
+        OnFloorRestarted?.Invoke();
         if (spawner != null) spawner.StartLevel(CurrentFloor - 1);
     }
 
@@ -304,27 +401,66 @@ public class FloorManager : MonoBehaviour
         return false;
     }
 
-    // ------------------------------------------------------------ hazard tiles (electric)
+    // ------------------------------------------------------------ hazard tiles (lava, water, electric)
 
-    // Reads the tile under each player and hurts the players in Electric Hurts, once per Hazard Tick Seconds, the moment they step on it
-    // and every tick after that while they stay.
+    // Reads the tile under each player and acts on it, by player number:
+    //   lava       only the players in Lava Hurts: the red builds while they stand on it and fades otherwise (also while jumping). Full red = dead.
+    //   water      only the players in Water Hurts: slowed every frame, hurt once per Hazard Tick Seconds (more than electricity)
+    //   electric   only the players in Electric Hurts: hurt once per Hazard Tick Seconds
+    // A player on water AND electricity is hurt by the water only (the bigger hit), so one tick never hits twice.
     private void CheckHazards()
     {
-        if (FloorController.BlocksInput || MenuController.IsOpen) return;   // nobody is hurt behind a menu or a black screen
+        if (FloorController.BlocksInput || MenuController.IsOpen) return;   // nobody is hurt (or heated) behind a menu or a black screen
+
+        float dt = Time.deltaTime;
 
         for (int n = 1; n <= MaxPlayers; n++)
         {
             CoopHealth p = CoopHealth.Get(n);
-            if (p == null || !p.IsAlive || !CoopRules.Counts(n)) continue;
-            if (p.Airborne) continue;   // jumping: nothing to read, nothing to hurt
-            if (!Listed(electricHurts, n)) continue;
+            if (p == null || !p.IsAlive || !CoopRules.Counts(n))
+            {
+                lavaHeat[n] = 0f;   // not playing, or dead: nothing stays red
+                continue;
+            }
 
-            string detail;
-            if (!ReadElectricTiles(HazardPoint(n, p), out detail)) continue;
+            // The tile is only read on the ground: in the air there is nothing to stand on.
+            bool airborne = p.Airborne;
+            HazardRead read = default(HazardRead);
+            if (!airborne) read = ReadHazardTiles(HazardPoint(n, p));
 
-            if (Time.time < nextTickTime[n]) continue;
-            nextTickTime[n] = Time.time + hazardTickSeconds;
-            HurtByHazard(p, electricDamage, "electricity", detail);
+            // Lava runs EVERY frame, jumping or not. An airborne player is simply "not on lava", so the red fades instead of growing.
+            bool onLava = read.lava && Listed(lavaHurts, n);
+            if (UpdateLava(n, p, onLava, dt)) continue;   // the lava killed them
+
+            if (airborne) continue;   // jumping: flies over water and electricity
+
+            bool inWater = read.water && Listed(waterHurts, n);
+            if (inWater) SlowDown(n, p);
+
+            string source = null;
+            float amount = 0f;
+            TileBase tile = null;
+            Sprite sprite = null;
+            if (inWater)
+            {
+                source = "water";
+                amount = waterDamagePerTick;
+                tile = read.waterTile;
+                sprite = read.waterSprite;
+            }
+            else if (read.electric && Listed(electricHurts, n))
+            {
+                source = "electricity";
+                amount = electricDamage;
+                tile = read.electricTile;
+                sprite = read.electricSprite;
+            }
+
+            if (source != null && Time.time >= nextTickTime[n])
+            {
+                nextTickTime[n] = Time.time + hazardTickSeconds;
+                HurtByHazard(p, amount, source, logHazards ? TileDetail(tile, sprite) : null);
+            }
         }
     }
 
@@ -340,11 +476,129 @@ public class FloorManager : MonoBehaviour
         player.ApplyDamage(amount);   // goes through CoopHealth: Invincible and the CoopRules still apply
     }
 
-    // Looks at every hazard tilemap under one point and says whether an electric tile is there.
-    private bool ReadElectricTiles(Vector2 point, out string detail)
+    // ------------------------------------------------------------ lava: the red meter
+
+    // Builds or cools one player's lava heat (0 = their own colour, 1 = fully red = dead). Returns true when the lava just killed them.
+    private bool UpdateLava(int n, CoopHealth p, bool onLava, float dt)
     {
-        detail = "";
-        bool found = false;
+        float heat = lavaHeat[n];
+
+        if (onLava)
+        {
+            // The difficulty scale works like it does for every trap (Easy x0.5, Medium x1, Hard x2); here it is how fast the red builds.
+            heat += dt * DifficultyRules.TrapDamageScale / Mathf.Max(lavaSecondsToDie, 0.05f);
+        }
+        else if (heat > 0f)
+        {
+            heat -= dt / Mathf.Max(lavaCoolSeconds, 0.05f);
+        }
+
+        heat = Mathf.Clamp01(heat);
+        lavaHeat[n] = heat;
+        if (heat < 1f) return false;
+
+        // Fully red: dead. This is a kill, not damage: no hit points are counted down on the way, and the difficulty scale is not applied again.
+        // It still goes through CoopHealth, so Invincible and the CoopRules apply.
+        p.ApplyDamage(Mathf.Max(p.MaxHealth, 1f) * 100f);
+        if (p.IsAlive) return false;   // protected (Invincible...): they stay fully red and it is tried again next frame
+
+        if (logHazards) Debug.Log("FloorManager: Player " + n + " burned up in lava (the sprite reached full red).", p);
+        lavaHeat[n] = 0f;
+        return true;
+    }
+
+    private void ResetAllLava()
+    {
+        for (int n = 1; n <= MaxPlayers; n++) lavaHeat[n] = 0f;
+    }
+
+    // Paints the heat onto the player's own SpriteRenderer (the same one TopDownJump uses by default). While the player is in the air TopDownJump
+    // draws a copy of that renderer and copies its colour every frame, so the red is visible and keeps fading during a jump too.
+    // LateUpdate, after the Animator has picked this frame's sprite. At zero heat the player's own colour is put back exactly once.
+    private void ShowLavaHeat(int n)
+    {
+        float heat = lavaHeat[n];
+        SpriteRenderer sr = lavaRenderer[n];
+
+        if (heat <= 0f)
+        {
+            if (lavaTinted[n])
+            {
+                if (sr != null) sr.color = lavaBaseColor[n];   // cooled all the way (or reset): their own colour back
+                lavaTinted[n] = false;
+                lavaRenderer[n] = null;
+            }
+            return;
+        }
+
+        if (!lavaTinted[n])
+        {
+            CoopHealth p = CoopHealth.Get(n);
+            sr = p != null ? p.GetComponent<SpriteRenderer>() : null;
+            if (sr == null)
+            {
+                if (!warnedNoLavaRenderer)
+                {
+                    warnedNoLavaRenderer = true;
+                    Debug.LogWarning("FloorManager: Player " + n + " has no SpriteRenderer on its own object, so the lava heat can't turn the sprite red. " +
+                                     "Lava still kills when the heat is full.", this);
+                }
+                return;
+            }
+
+            lavaRenderer[n] = sr;
+            lavaBaseColor[n] = sr.color;   // remembered now, while it is still untouched
+            lavaTinted[n] = true;
+        }
+        else if (sr == null)
+        {
+            lavaTinted[n] = false;   // that player object is gone (a new floor or a respawn): start fresh next time
+            return;
+        }
+
+        Color tint = Color.Lerp(lavaBaseColor[n], lavaTint, heat);
+        tint.a = sr.color.a;   // leave any fade the player has alone
+        sr.color = tint;
+    }
+
+    // ------------------------------------------------------------ water: the slow
+
+    // Holds the character at waterSlowFactor of its speed. Called every frame in water; the slow runs out waterSlowSeconds after the last call.
+    private void SlowDown(int n, CoopHealth p)
+    {
+        if (playerWalkerOwners[n] != p)
+        {
+            playerWalkerOwners[n] = p;
+            playerWalkers[n] = p.GetComponent<TopDownCharacterController>();
+        }
+
+        TopDownCharacterController walker = playerWalkers[n];
+        if (walker != null) walker.ApplySlow(waterSlowFactor, waterSlowSeconds);
+    }
+
+    // ------------------------------------------------------------ reading the tiles
+
+    // What ReadHazardTiles found under one point. The tile / sprite are the LAST water or electric tile found (null when none): the Console line
+    // names them when a hit is printed, so no text is built while reading.
+    private struct HazardRead
+    {
+        public bool lava;
+        public bool water;
+        public bool electric;
+        public TileBase waterTile;
+        public Sprite waterSprite;
+        public TileBase electricTile;
+        public Sprite electricSprite;
+    }
+
+    // Looks at every hazard tilemap under one point and says whether lava, water or electricity is there.
+    private HazardRead ReadHazardTiles(Vector2 point)
+    {
+        HazardRead read = default(HazardRead);
+
+        string lava = TileNameCache.NormalizeWanted(lavaName);
+        string water = TileNameCache.NormalizeWanted(waterName);
+        string electric = TileNameCache.NormalizeWanted(electricName);
 
         Tilemap[] maps = HazardMaps();
         for (int i = 0; i < maps.Length; i++)
@@ -359,15 +613,31 @@ public class FloorManager : MonoBehaviour
             if (tile == null) continue;
 
             Sprite shown = map.GetSprite(cell);
-            string spriteName = shown != null ? shown.name : "";
 
-            if (NameHas(tile.name, electricName) || NameHas(spriteName, electricName))
+            if (TileOrSpriteHas(tile, shown, lava))
             {
-                found = true;
-                detail = "tile '" + tile.name + "', sprite '" + spriteName + "'";
+                read.lava = true;
+            }
+            if (TileOrSpriteHas(tile, shown, water))
+            {
+                read.water = true;
+                read.waterTile = tile;
+                read.waterSprite = shown;
+            }
+            if (TileOrSpriteHas(tile, shown, electric))
+            {
+                read.electric = true;
+                read.electricTile = tile;
+                read.electricSprite = shown;
             }
         }
-        return found;
+        return read;
+    }
+
+    // Console text for the hazard log lines. Only built when a line is really printed.
+    private static string TileDetail(TileBase tile, Sprite sprite)
+    {
+        return "tile '" + tile.name + "', sprite '" + (sprite != null ? sprite.name : "") + "'";
     }
 
     private static bool Listed(int[] list, int value)
@@ -375,24 +645,17 @@ public class FloorManager : MonoBehaviour
         return list != null && System.Array.IndexOf(list, value) >= 0;
     }
 
-    // Capitals, spaces, dashes and underscores are ignored, so "electric" is found in "Electric-16px_strip8_3".
-    private static bool NameHas(string candidate, string wanted)
+    // Capitals, spaces, dashes and underscores are ignored, so "lava" is found in "Lava-16px_strip12_3". Both texts are already normalized
+    // (TileNameCache), and an empty name never matches.
+    private static bool Matches(string normalizedCandidate, string normalizedWanted)
     {
-        string a = Normalize(candidate);
-        string b = Normalize(wanted);
-        return a.Length > 0 && b.Length > 0 && a.Contains(b);
+        return normalizedCandidate.Length > 0 && normalizedWanted.Length > 0 && normalizedCandidate.Contains(normalizedWanted);
     }
 
-    private static string Normalize(string text)
+    // True when the tile asset's name OR the name of the sprite it shows contains the (normalized) wanted name. A null sprite never matches.
+    private static bool TileOrSpriteHas(TileBase tile, Sprite sprite, string normalizedWanted)
     {
-        if (string.IsNullOrEmpty(text)) return "";
-
-        var sb = new System.Text.StringBuilder(text.Length);
-        for (int i = 0; i < text.Length; i++)
-        {
-            if (char.IsLetterOrDigit(text[i])) sb.Append(char.ToLowerInvariant(text[i]));
-        }
-        return sb.ToString();
+        return Matches(TileNameCache.NormalizedName(tile), normalizedWanted) || Matches(TileNameCache.NormalizedName(sprite), normalizedWanted);
     }
 
     private Tilemap[] HazardMaps()
@@ -441,6 +704,12 @@ public class FloorManager : MonoBehaviour
 
     // ------------------------------------------------------------ hooks for HazardTileFx (read-only)
 
+    /// <summary>The name a tile must contain to count as lava (the same rule that heats).</summary>
+    public string LavaName { get { return lavaName; } }
+
+    /// <summary>The name a tile must contain to count as water (the same rule that hurts and slows).</summary>
+    public string WaterName { get { return waterName; } }
+
     /// <summary>The name a tile must contain to count as electric (the same rule that hurts).</summary>
     public string ElectricName { get { return electricName; } }
 
@@ -457,13 +726,26 @@ public class FloorManager : MonoBehaviour
         return HazardPoint(n, player);
     }
 
-    /// <summary>The name rule used for electric tiles: capitals, spaces, dashes and underscores don't matter.</summary>
+    /// <summary>The name rule used for lava, water and electricity: capitals, spaces, dashes and underscores don't matter.</summary>
     public static bool TileNameHas(string candidate, string wanted)
     {
-        return NameHas(candidate, wanted);
+        return Matches(TileNameCache.Normalize(candidate), TileNameCache.NormalizeWanted(wanted));
     }
 
-    // ------------------------------------------------------------ stray foe check
+    // ------------------------------------------------------------ hooks for the traps (read-only)
+
+    /// <summary>The floor Tilemaps (the same list the stray foe check uses). Never null: an empty array if none are set.
+    /// TileRemoveTrap and TrapRoomCalculator read the floor from here.</summary>
+    public Tilemap[] FloorTilemapList { get { return floorTilemaps != null ? floorTilemaps : System.Array.Empty<Tilemap>(); } }
+
+    /// <summary>True if there is a floor tile under this point. With no Floor Tilemaps set there is no opinion, so it says true.</summary>
+    public bool IsFloorTile(Vector2 worldPos)
+    {
+        if (floorTilemaps == null || floorTilemaps.Length == 0) return true;
+        return OnAnyTile(worldPos);
+    }
+
+    // ------------------------------------------------------------ update
 
     private void Update()
     {
@@ -471,11 +753,23 @@ public class FloorManager : MonoBehaviour
         {
             CheckHazards();
         }
+        else
+        {
+            ResetAllLava();   // switched off while somebody was heating up: they cool at once
+        }
 
         if (!removeStrayFoes || Time.time < nextCheckTime) return;
         nextCheckTime = Time.time + checkInterval;
         CheckFoes();
     }
+
+    // After the Animator (and with TopDownJump's own LateUpdate, which copies the colour onto the jump sprite).
+    private void LateUpdate()
+    {
+        for (int n = 1; n <= MaxPlayers; n++) ShowLavaHeat(n);
+    }
+
+    // ------------------------------------------------------------ stray foe check
 
     private void CheckFoes()
     {
