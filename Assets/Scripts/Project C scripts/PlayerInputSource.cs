@@ -629,6 +629,7 @@ public class PlayerInputSource : MonoBehaviour
         _started = true;
         CheckForClashes();
         LogKeysInUse();
+        LogInputState();
         if (playerNumber > 1) StartCoroutine(WarnIfCoopOff());
     }
 
@@ -766,6 +767,70 @@ public class PlayerInputSource : MonoBehaviour
 
         for (int i = 0; i < MaxPlayers; i++) if (keysByPlayer[i] == null) keysByPlayer[i] = KeyBindings.CreateDefault(i + 1);
         if (soloExtraKeys == null) soloExtraKeys = KeyBindings.CreateSoloExtras();
+    }
+
+    // ------------------------------------------------------------------ diagnostics: "I press a key and the player does not move"
+
+    private bool _ignoredReported;
+
+    private static string KeyList(KeyCode[] keys)
+    {
+        if (keys == null || keys.Length == 0) return "NONE";
+        return string.Join("/", Array.ConvertAll(keys, k => k.ToString()));
+    }
+
+    // Every reason this player can ignore the keyboard, in words. Empty when nothing is wrong.
+    private string WhyKeyboardIgnored()
+    {
+        System.Text.StringBuilder why = new System.Text.StringBuilder();
+        if (!useKeyboard)
+            why.Append(" The Keyboard switch is OFF for this player (PlayerInputHub > Players > Use Keyboard, or the Keyboard toggle in the controls list).");
+        if (Locked)
+            why.Append(" Locked is ON: a menu, inventory or cutscene script locked this player and never unlocked it.");
+        if (playerNumber != 1 && !TwoPlayers)
+            why.Append(" This character is Player " + playerNumber + ", and Player 2 and up only answer once a second player is in the game. " +
+                       "If this is your only player, it was given the wrong slot: drag it into Element 0 of the PlayerInputHub's Players list.");
+        if (Typing)
+            why.Append(" A UI input field has focus (the EventSystem's selected object), so every key counts as typing. Click the game view or clear the selection.");
+        return why.ToString();
+    }
+
+    // One line per player at the start: who this is and the movement keys it really uses.
+    private void LogInputState()
+    {
+        KeyCode[][] t = Table;
+        Debug.Log("PlayerInputSource: '" + name + "' is Player " + playerNumber + " | hub=" + (Hub != null) +
+                  " keyboard=" + useKeyboard + " locked=" + Locked + " twoPlayers=" + TwoPlayers + " active=" + Active +
+                  " | Move keys: Left=" + KeyList(t[(int)PlayerAction.Left]) + " Right=" + KeyList(t[(int)PlayerAction.Right]) +
+                  " Up=" + KeyList(t[(int)PlayerAction.Up]) + " Down=" + KeyList(t[(int)PlayerAction.Down]), this);
+
+        string why = WhyKeyboardIgnored();
+        if (why.Length > 0)
+            Debug.LogWarning("PlayerInputSource: '" + name + "' (Player " + playerNumber + ") will ignore the keyboard right now:" + why, this);
+
+        if (t[(int)PlayerAction.Left].Length == 0 || t[(int)PlayerAction.Right].Length == 0 ||
+            t[(int)PlayerAction.Up].Length == 0 || t[(int)PlayerAction.Down].Length == 0)
+        {
+            Debug.LogWarning("PlayerInputSource: Player " + playerNumber + " has NO key for at least one movement direction, so it cannot " +
+                             "walk that way from the keyboard. Fix the keys in the PlayerInputHub slot, or use the hub's context menu " +
+                             "\"Reset ALL Players To Defaults\".", this);
+        }
+    }
+
+    // Reported once: a movement key is physically held, but a gate says to ignore it, so the reason is named.
+    private void Update()
+    {
+        if (_ignoredReported) return;
+        if (useKeyboard && Active && !Typing) return;   // the keyboard is being read normally
+
+        KeyCode[][] t = Table;
+        bool held = KeysHeld(t[(int)PlayerAction.Left]) || KeysHeld(t[(int)PlayerAction.Right]) ||
+                    KeysHeld(t[(int)PlayerAction.Up]) || KeysHeld(t[(int)PlayerAction.Down]);
+        if (!held) return;
+
+        _ignoredReported = true;
+        Debug.LogWarning("PlayerInputSource: a movement key is held on '" + name + "' (Player " + playerNumber + ") but it is being IGNORED:" +
+                         WhyKeyboardIgnored(), this);
     }
 
     // ------------------------------------------------------------------ gating

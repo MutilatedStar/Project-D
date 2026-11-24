@@ -88,11 +88,78 @@ namespace Cainos.PixelArtTopDown_Basic
             jump = GetComponent<TopDownJump>();
             pickUp = GetComponent<TopDownPickUp>();
 
+            SetupChecks();
+
             if (footstepSource != null)
             {
                 footstepSource.playOnAwake = false;
                 basePitch = footstepSource.pitch;   // random changes are applied around whatever pitch it has in the Inspector
             }
+        }
+
+        // ------------------------------------------------------------ setup checks (things that silently stop movement)
+
+        private bool setupBroken;   // a required component is missing: Update would throw every frame, so it is skipped
+
+        private void SetupChecks()
+        {
+            // A player dragged onto a Canvas becomes a UI object (RectTransform): physics and the camera stop working with it.
+            if (transform is RectTransform || GetComponentInParent<Canvas>() != null)
+            {
+                Debug.LogError("TopDownCharacterController on '" + name + "': this player is a UI object or sits under a Canvas. " +
+                               "Drag it back to the ROOT of the Hierarchy and replace its RectTransform with a normal Transform " +
+                               "(undo, or re-add it from the prefab). Players must never be children of a Canvas.", this);
+            }
+
+            if (rb == null)
+            {
+                Debug.LogError("TopDownCharacterController on '" + name + "': there is no Rigidbody2D on this object, so it cannot move. Add one.", this);
+                setupBroken = true;
+            }
+            if (animator == null)
+            {
+                Debug.LogError("TopDownCharacterController on '" + name + "': there is no Animator on this object. Add one.", this);
+                setupBroken = true;
+            }
+
+            // Speed is a plain field, so a reset or a new component leaves it at 0 and the player never moves.
+            if (speed <= 0f)
+            {
+                Debug.LogWarning("TopDownCharacterController on '" + name + "': Speed is " + speed + ", so the player cannot walk. " +
+                                 "Using " + FallbackSpeed + " for now - set Speed in the Inspector to remove this warning.", this);
+                speed = FallbackSpeed;
+            }
+        }
+
+        private const float FallbackSpeed = 3f;
+
+        // One line at the start that shows every setting that can stop the player.
+        private void Start()
+        {
+            if (rb == null || input == null) return;
+            Debug.Log("[MoveCheck] " + name + ": speed=" + speed + ", player=" + input.playerNumber +
+                      ", timeScale=" + Time.timeScale + ", BlocksInput=" + FloorController.BlocksInput +
+                      ", Locked=" + input.Locked + ", bodyType=" + rb.bodyType + ", simulated=" + rb.simulated +
+                      ", isUI=" + (transform is RectTransform) +
+                      ", parent=" + (transform.parent != null ? transform.parent.name : "none"), this);
+        }
+
+        // Tells you WHY the player is held still when that lasts a couple of seconds (a menu or stairs screen is normal for
+        // a moment; a flag that never clears is the bug). Uses unscaled time so it also works while timeScale is 0.
+        private float blockedFor;
+        private bool blockedReported;
+
+        private void ReportIfBlockedTooLong()
+        {
+            if (blockedReported) return;
+            blockedFor += Time.unscaledDeltaTime;
+            if (blockedFor < 2f) return;
+
+            blockedReported = true;
+            Debug.LogWarning("TopDownCharacterController on '" + name + "': the player has been held still for 2 seconds. " +
+                             "FloorController.BlocksInput=" + FloorController.BlocksInput + ", input.Locked=" + input.Locked +
+                             ", Time.timeScale=" + Time.timeScale + ". Whichever is on is stuck: find the script that sets it " +
+                             "(a menu, pause or stairs script) and make sure it clears it.", this);
         }
 
         // Switched off by PauseManager / a menu while walking: stand still instead of sliding on.
@@ -143,6 +210,8 @@ namespace Cainos.PixelArtTopDown_Basic
 
         private void Update()
         {
+            if (setupBroken) return;   // the error is already in the Console; do not throw every frame
+
             // Stairs menu, floor change, or a menu that locked this player: hold still.
             if (FloorController.BlocksInput || input.Locked)
             {
@@ -150,8 +219,11 @@ namespace Cainos.PixelArtTopDown_Basic
                 animator.SetBool("IsMoving", false);
                 wasStepping = false;
                 knockTimeLeft = 0f;
+                ReportIfBlockedTooLong();
                 return;
             }
+            blockedFor = 0f;
+            blockedReported = false;
 
             // Run: tap to switch on/off, or hold. The rule lives in PlayerInputSource so both movement scripts share it.
             isSprinting = input.ResolveRun(sprintToggle, isSprinting);
