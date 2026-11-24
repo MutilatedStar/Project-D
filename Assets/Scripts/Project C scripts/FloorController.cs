@@ -33,6 +33,9 @@ using Ilumisoft.HealthSystem;
 ///                 ChangeTileSprite() is public if you want to swap any other tile's picture from your own scripts.
 ///                 Not sure what your tiles are called? Leave Log Tile Under Player on, walk onto the tile, and read the
 ///                 exact names in the Console.
+///   Heal Over Time Tiles   a list of tile names (tile asset OR sprite name, same matching as the fountain). While a player stands on a
+///                 matching tile they are healed Heal Amount every Every Seconds (default 10 every 1 second). Each element has its
+///                 own name, amount and time. These tiles never run out and never change picture.
 ///   Shop          OpenShop() clears the foes and opens the Shop scene (use a FloorDoor with Action = Shop, or any button).
 ///                 When the dungeon scene loads again, the players are moved to the next floor's spawn points.
 ///
@@ -87,6 +90,18 @@ public class FloorController : MonoBehaviour
         }
     }
 
+    /// <summary>One kind of "heal over time" tile: which name it looks for, how much it heals, and how often.</summary>
+    [System.Serializable]
+    public class HealTile
+    {
+        [Tooltip("Name to look for. A tile matches when its tile asset name OR the name of the sprite it shows matches this (see Name Match and Match Sprite Name under Tiles).")]
+        public string tileName = "Heal Tile";
+        [Tooltip("Health restored each time the timer ticks.")]
+        [Min(0f)] public float healAmount = 10f;
+        [Tooltip("Seconds between ticks while the player stands on the tile. 1 = once a second, 0.5 = twice a second, 2 = every two seconds.")]
+        [Min(0.01f)] public float everySeconds = 1f;
+    }
+
     [Header("Tiles")]
     [Tooltip("Tilemaps to check for the fountain. Leave EMPTY to check every Tilemap in the scene (re-checked once a second, so generated ones count too).")]
     [SerializeField] private Tilemap[] tilemaps;
@@ -108,6 +123,11 @@ public class FloorController : MonoBehaviour
     [SerializeField, Min(0f)] private float healAmount = 50f;
     [Tooltip("Optional. The picture the fountain's tile changes to once it has been used (an empty fountain). Leave empty to keep the picture. The fountain only heals once either way.")]
     [SerializeField] private Sprite usedFountainSprite;
+
+    [Header("Heal Over Time Tiles")]
+    [Tooltip("Tiles that heal a player for as long as they stand on them. One element per kind of tile, each with its own name, amount and time. " +
+             "A tile matches by its tile asset name or its sprite name. Unlike the fountain, these never run out. The default is 10 health every 1 second.")]
+    [SerializeField] private HealTile[] healTiles = new HealTile[] { new HealTile() };
 
     [Header("Floors")]
     [Tooltip("The floor number the run starts on.")]
@@ -195,6 +215,10 @@ public class FloorController : MonoBehaviour
     private readonly Dictionary<int, string> lastLogged = new Dictionary<int, string>();   // per player number
     private readonly HashSet<string> warned = new HashSet<string>();
     private bool doorsArmed;   // false until the doors have been seen NOT ready, so a door can't fire the instant a floor starts
+
+    // Heal Over Time: which heal tile each player is standing on (-1 = none) and how long they have been on it since the last tick.
+    private readonly int[] healTileIndex = { -1, -1, -1, -1, -1 };
+    private readonly float[] healTileTimer = new float[MaxPlayers + 1];
 
     // Each player's solid collider, found once (it is only used to find the middle of the player).
     private readonly Collider2D[] colliderCache = new Collider2D[MaxPlayers + 1];
@@ -286,7 +310,11 @@ public class FloorController : MonoBehaviour
         for (int n = 1; n <= MaxPlayers; n++)
         {
             CoopHealth p = CoopHealth.Get(n);
-            if (p == null || !p.IsAlive || !CoopRules.Counts(n)) continue;
+            if (p == null || !p.IsAlive || !CoopRules.Counts(n))
+            {
+                ResetHealTimer(n);   // a downed or absent player starts from zero when they are back on a heal tile
+                continue;
+            }
 
             Vector2 point = CheckPoint(n, p);
             if (logTileUnderPlayer) LogTilesUnder(n, point);
@@ -297,6 +325,8 @@ public class FloorController : MonoBehaviour
             {
                 UseFountain(fountainMap, fountainCell, p);
             }
+
+            HealOverTime(n, p, point);
         }
     }
 
@@ -454,6 +484,62 @@ public class FloorController : MonoBehaviour
         health.SetHealth(healed);
 
         if (usedFountainSprite != null) ChangeTileSprite(map, cell, usedFountainSprite);
+    }
+
+    // ------------------------------------------------------------ heal over time tiles
+
+    private void ResetHealTimer(int playerNumber)
+    {
+        healTileIndex[playerNumber] = -1;
+        healTileTimer[playerNumber] = 0f;
+    }
+
+    // While a player stands on a tile that matches one of the Heal Tiles, heals them Heal Amount every Every Seconds.
+    // The timer only runs while they are on the tile and starts over when they leave it or step onto a different kind.
+    private void HealOverTime(int playerNumber, HealthComponent health, Vector2 point)
+    {
+        if (healTiles == null || healTiles.Length == 0 || health == null)
+        {
+            ResetHealTimer(playerNumber);
+            return;
+        }
+
+        int found = -1;
+        for (int i = 0; i < healTiles.Length; i++)
+        {
+            HealTile tile = healTiles[i];
+            if (tile == null || string.IsNullOrEmpty(tile.tileName)) continue;
+            if (FindTile(tile.tileName, point, out _, out _))
+            {
+                found = i;
+                break;
+            }
+        }
+
+        if (found < 0)
+        {
+            ResetHealTimer(playerNumber);
+            return;
+        }
+
+        if (healTileIndex[playerNumber] != found)
+        {
+            healTileIndex[playerNumber] = found;
+            healTileTimer[playerNumber] = 0f;
+        }
+
+        HealTile active = healTiles[found];
+        float interval = Mathf.Max(0.01f, active.everySeconds);
+
+        healTileTimer[playerNumber] += Time.deltaTime;
+        while (healTileTimer[playerNumber] >= interval)
+        {
+            healTileTimer[playerNumber] -= interval;
+            if (health.CurrentHealth < health.MaxHealth)
+            {
+                health.SetHealth(Mathf.Min(health.MaxHealth, health.CurrentHealth + active.healAmount));
+            }
+        }
     }
 
     /// <summary>Changes the picture of ONE tile on a tilemap (it keeps its collider setting, colour and rotation).
