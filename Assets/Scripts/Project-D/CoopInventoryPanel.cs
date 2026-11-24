@@ -4,19 +4,27 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// One player's inventory bar: a row of sword slots (the held one is highlighted) with the player's running power-ups
-/// as small labelled timers above it. It is built by this script when the player appears, so there are no slots to draw
-/// by hand, and it shows only what THAT player owns (with Shared Weapons ON, what anybody owns).
+/// One player's inventory bar: a row of slots (the Frost Sword and the five tools, the held one highlighted) with the player's running
+/// power-ups and tool buffs as small labelled timers above it. It is built by this script when the player appears, so there are no slots to
+/// draw by hand, and it shows only what THAT player owns (with Shared Weapons ON, what anybody owns).
 ///
-/// SET UP, once for each player:
+/// Each slot shows:
+///   - the slot number (the number key that picks it),
+///   - its Icon, or the short label on a coloured square while it has no icon (the Frost Sword shows a coloured bar like before),
+///   - a dark cover that drains away while the tool is on cooldown,
+///   - a thin bar underneath while the tool is being charged (held),
+///   - "x2" style dash charges for the Magic Boots.
+/// The timer squares above the row show power-ups (PlayerEffects) and tool buffs: the Magic Boots speed buff, the Bubble Shield, the lens.
+///
+/// SET UP, once for each player (the same as before):
 ///   1. Make an empty object in a Screen Space - Overlay Canvas (Create Empty under the Canvas gives it a Rect Transform)
 ///      and put this script on it. Leave it at a normal size: the script sizes it to fit its slots.
 ///   2. Set Player Number (1 or 2).
 ///   3. Add ONE CoopInventoryLayout to the scene to place the bars (Free / Mirror / Auto Snap), like the health bars.
 /// The object stays switched on; the script shows and hides the bar itself as the player comes and goes.
 ///
-/// It needs the player's SwordController (the slots) and, for the timers, PlayerEffects (added automatically when the
-/// player picks up a power-up). The slots show each sword's Sprite, or a coloured bar until it has one.
+/// It needs the player's SwordController (the slots) and, for the power-up timers, PlayerEffects (added automatically when the
+/// player picks up a power-up).
 /// This is separate from InventoryItemSlot on purpose: that one is the detective game's mouse inventory (covers, popups,
 /// dragging items to suspects). This one is the per-player weapon bar and never touches it.
 /// </summary>
@@ -24,22 +32,27 @@ using UnityEngine.UI;
 public class CoopInventoryPanel : CoopHudPanel
 {
     [Header("Slots")]
-    [Tooltip("Width and height of one sword slot, in canvas units.")]
+    [Tooltip("Width and height of one slot, in canvas units.")]
     [Min(8f)] public float slotSize = 52f;
     [Tooltip("Gap between slots and between rows.")]
     [Min(0f)] public float spacing = 6f;
-    [Tooltip("ON: swords the player doesn't own yet show as dark empty slots, so they can see what is still to find. OFF: only owned swords show.")]
+    [Tooltip("ON: slots the player doesn't own yet show as dark empty slots, so they can see what is still to find. OFF: only owned slots show.")]
     public bool showLockedSlots = true;
     public Color slotColor = new Color(0.1f, 0.1f, 0.14f, 0.85f);
     public Color selectedColor = new Color(0.95f, 0.8f, 0.25f, 0.95f);
     public Color lockedColor = new Color(0.05f, 0.05f, 0.07f, 0.55f);
+    [Tooltip("The dark cover that drains away while a tool is on cooldown.")]
+    public Color cooldownColor = new Color(0f, 0f, 0f, 0.65f);
+    [Tooltip("Show the slot numbers in the corner of each slot.")]
+    public bool showSlotNumbers = true;
 
-    [Header("Power-up timers")]
+    [Header("Timers and labels")]
     [Tooltip("Width and height of one timer square.")]
     [Min(8f)] public float chipSize = 30f;
     [Tooltip("Optional. Leave empty to use TextMeshPro's default font.")]
     public TMP_FontAsset font;
     [Min(6f)] public float chipFontSize = 11f;
+    [Min(6f)] public float labelFontSize = 11f;
 
     public override HudGroup Group { get { return HudGroup.Inventory; } }
 
@@ -72,6 +85,10 @@ public class CoopInventoryPanel : CoopHudPanel
         public RectTransform rect;
         public Image background;
         public Image icon;
+        public TextMeshProUGUI toolLabel;
+        public Image cover;
+        public Image chargeBar;
+        public TextMeshProUGUI pips;
         public bool visible;
     }
 
@@ -162,6 +179,10 @@ public class CoopInventoryPanel : CoopHudPanel
         s.background = s.root.GetComponent<Image>();
         s.background.raycastTarget = false;
 
+        SwordController.SwordStats stats = controller.StatsAt(index);
+        bool isTool = controller.KindAt(index) != ToolKind.Sword;
+        PlayerTool tool = controller.ToolAt(index);
+
         GameObject iconObject = new GameObject("Icon", typeof(RectTransform), typeof(Image));
         RectTransform iconRect = (RectTransform)iconObject.transform;
         iconRect.SetParent(s.rect, false);
@@ -172,22 +193,110 @@ public class CoopInventoryPanel : CoopHudPanel
         s.icon.raycastTarget = false;
         s.icon.preserveAspect = true;
 
-        SwordController.SwordStats stats = controller.StatsAt(index);
         if (stats != null && stats.sprite != null)
         {
             s.icon.sprite = stats.sprite;
             s.icon.color = Color.white;
             iconRect.sizeDelta = new Vector2(slotSize * 0.8f, slotSize * 0.8f);
         }
+        else if (isTool)
+        {
+            // No picture yet: a coloured square with the tool's short name on it.
+            s.icon.sprite = SwordController.WhiteSquare;
+            s.icon.color = stats != null ? stats.placeholderColor : Color.white;
+            iconRect.sizeDelta = new Vector2(slotSize * 0.72f, slotSize * 0.72f);
+
+            s.toolLabel = NewText("Name", iconRect, labelFontSize);
+            s.toolLabel.text = tool != null ? tool.ShortLabel : "";
+            s.toolLabel.color = new Color(0.05f, 0.05f, 0.08f, 1f);
+            s.toolLabel.fontStyle = FontStyles.Bold;
+            s.toolLabel.alignment = TextAlignmentOptions.Center;
+            Stretch(s.toolLabel.rectTransform);
+        }
         else
         {
-            // No sprite yet: a coloured bar laid diagonally, like a sword.
+            // The sword with no sprite yet: a coloured bar laid diagonally, like a sword.
             s.icon.sprite = SwordController.WhiteSquare;
             s.icon.color = stats != null ? stats.placeholderColor : Color.white;
             iconRect.sizeDelta = new Vector2(slotSize * 0.85f, slotSize * 0.16f);
             iconRect.localEulerAngles = new Vector3(0f, 0f, 45f);
         }
+
+        // The cooldown cover: full when the tool was just used, draining to nothing.
+        GameObject coverObject = new GameObject("Cooldown", typeof(RectTransform), typeof(Image));
+        RectTransform coverRect = (RectTransform)coverObject.transform;
+        coverRect.SetParent(s.rect, false);
+        Stretch(coverRect);
+        s.cover = coverObject.GetComponent<Image>();
+        s.cover.raycastTarget = false;
+        s.cover.sprite = SwordController.WhiteSquare;   // a filled Image needs a sprite
+        s.cover.type = Image.Type.Filled;
+        s.cover.fillMethod = Image.FillMethod.Vertical;
+        s.cover.fillOrigin = (int)Image.OriginVertical.Bottom;
+        s.cover.color = cooldownColor;
+        s.cover.enabled = false;
+
+        // The charge bar along the bottom edge.
+        GameObject barObject = new GameObject("Charge", typeof(RectTransform), typeof(Image));
+        RectTransform barRect = (RectTransform)barObject.transform;
+        barRect.SetParent(s.rect, false);
+        barRect.anchorMin = new Vector2(0f, 0f);
+        barRect.anchorMax = new Vector2(1f, 0f);
+        barRect.pivot = new Vector2(0f, 0f);
+        barRect.sizeDelta = new Vector2(0f, 4f);
+        barRect.anchoredPosition = Vector2.zero;
+        s.chargeBar = barObject.GetComponent<Image>();
+        s.chargeBar.raycastTarget = false;
+        s.chargeBar.sprite = SwordController.WhiteSquare;
+        s.chargeBar.type = Image.Type.Filled;
+        s.chargeBar.fillMethod = Image.FillMethod.Horizontal;
+        s.chargeBar.color = Color.white;
+        s.chargeBar.enabled = false;
+
+        // The slot number, top left.
+        if (showSlotNumbers)
+        {
+            TextMeshProUGUI number = NewText("Number", s.rect, labelFontSize);
+            number.text = (index + 1).ToString();
+            number.color = new Color(1f, 1f, 1f, 0.7f);
+            number.alignment = TextAlignmentOptions.TopLeft;
+            Stretch(number.rectTransform);
+            number.rectTransform.offsetMin = new Vector2(3f, 0f);
+            number.rectTransform.offsetMax = new Vector2(0f, -1f);
+        }
+
+        // Charges ("x2"), bottom right.
+        s.pips = NewText("Charges", s.rect, labelFontSize);
+        s.pips.color = Color.white;
+        s.pips.fontStyle = FontStyles.Bold;
+        s.pips.alignment = TextAlignmentOptions.BottomRight;
+        Stretch(s.pips.rectTransform);
+        s.pips.rectTransform.offsetMin = new Vector2(0f, 5f);
+        s.pips.rectTransform.offsetMax = new Vector2(-3f, 0f);
+        s.pips.gameObject.SetActive(false);
+
         return s;
+    }
+
+    private TextMeshProUGUI NewText(string objectName, Transform parent, float size)
+    {
+        GameObject go = new GameObject(objectName, typeof(RectTransform), typeof(TextMeshProUGUI));
+        RectTransform rect = (RectTransform)go.transform;
+        rect.SetParent(parent, false);
+
+        TextMeshProUGUI text = go.GetComponent<TextMeshProUGUI>();
+        if (font != null) text.font = font;
+        text.fontSize = size;
+        text.raycastTarget = false;
+        return text;
+    }
+
+    private static void Stretch(RectTransform rect)
+    {
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
     }
 
     private Chip NewChip()
@@ -217,7 +326,7 @@ public class CoopInventoryPanel : CoopHudPanel
         c.label.color = Color.white;
         c.label.raycastTarget = false;
 
-        // The time bar: full when the power-up starts, empty when it runs out.
+        // The time bar: full when the effect starts, empty when it runs out.
         GameObject barObject = new GameObject("Time", typeof(RectTransform), typeof(Image));
         RectTransform barRect = (RectTransform)barObject.transform;
         barRect.SetParent(c.rect, false);
@@ -265,35 +374,60 @@ public class CoopInventoryPanel : CoopHudPanel
             s.rect.anchoredPosition = new Vector2(visible * (slotSize + spacing), 0f);
             s.background.color = !owned ? lockedColor : (i == current ? selectedColor : slotColor);
             s.icon.enabled = owned;
+            if (s.toolLabel != null) s.toolLabel.enabled = owned;
+
+            PlayerTool tool = controller.ToolAt(i);
+            float cooldown = (owned && tool != null) ? tool.CooldownFraction : 0f;
+            s.cover.enabled = cooldown > 0.001f;
+            if (s.cover.enabled) s.cover.fillAmount = cooldown;
+
+            float charge = (owned && tool != null) ? tool.ChargeFraction : 0f;
+            s.chargeBar.enabled = charge > 0.001f;
+            if (s.chargeBar.enabled) s.chargeBar.fillAmount = charge;
+
+            bool hasPips = owned && tool != null && tool.PipMax > 0;
+            if (s.pips.gameObject.activeSelf != hasPips) s.pips.gameObject.SetActive(hasPips);
+            if (hasPips) s.pips.text = "x" + tool.PipCount;
+
             visible++;
         }
 
-        // Timers: a row above the slots, one square per running power-up.
-        int running = effects != null ? effects.Active.Count : 0;
+        // Timers: a row above the slots. First the power-ups, then the tool buffs.
         float chipY = slotSize + spacing;
+        int used = 0;
+
+        int running = effects != null ? effects.Active.Count : 0;
         for (int k = 0; k < running; k++)
         {
-            while (chips.Count <= k) chips.Add(NewChip());
-
-            Chip c = chips[k];
             PlayerEffects.ActiveEffect e = effects.Active[k];
             Color tint = PlayerEffects.ColorOf(e.kind);
-
-            if (!c.root.activeSelf) c.root.SetActive(true);
-            c.rect.anchoredPosition = new Vector2(k * (chipSize + spacing), chipY);
-            c.background.color = new Color(tint.r * 0.45f, tint.g * 0.45f, tint.b * 0.45f, 0.9f);
-            c.bar.color = tint;
-            c.bar.fillAmount = e.duration > 0f ? Mathf.Clamp01(e.remaining / e.duration) : 0f;
-            c.label.text = PlayerEffects.ShortName(e.kind);
+            float fraction = e.duration > 0f ? Mathf.Clamp01(e.remaining / e.duration) : 0f;
+            SetChip(used, tint, PlayerEffects.ShortName(e.kind), fraction, chipY);
+            used++;
         }
-        for (int k = running; k < chips.Count; k++)
+
+        for (int i = 0; i < slots.Count; i++)
+        {
+            PlayerTool tool = controller.ToolAt(i);
+            if (tool == null || !controller.IsUnlocked(i)) continue;
+
+            float fraction = tool.BuffFraction;
+            if (fraction <= 0.001f) continue;
+
+            SetChip(used, tool.BuffColor, tool.BuffLabel, fraction, chipY);
+            used++;
+        }
+
+        for (int k = used; k < chips.Count; k++)
         {
             if (chips[k].root.activeSelf) chips[k].root.SetActive(false);
         }
 
         // The panel is always as big as the room reserved: the slot row plus one timer row. (Reserved even when no
         // timer is running, so the bar doesn't jump around when a power-up starts and the layout can place it once.)
-        float width = Mathf.Max(visible * slotSize + Mathf.Max(0, visible - 1) * spacing, chipSize);
+        float slotsWidth = visible * slotSize + Mathf.Max(0, visible - 1) * spacing;
+        float chipsWidth = used * chipSize + Mathf.Max(0, used - 1) * spacing;
+        float width = Mathf.Max(Mathf.Max(slotsWidth, chipsWidth), chipSize);
         float height = slotSize + spacing + chipSize;
         Vector2 size = new Vector2(width, height);
         if (size != lastSize)
@@ -301,5 +435,18 @@ public class CoopInventoryPanel : CoopHudPanel
             lastSize = size;
             panelRect.sizeDelta = size;
         }
+    }
+
+    private void SetChip(int index, Color tint, string label, float fraction, float y)
+    {
+        while (chips.Count <= index) chips.Add(NewChip());
+
+        Chip c = chips[index];
+        if (!c.root.activeSelf) c.root.SetActive(true);
+        c.rect.anchoredPosition = new Vector2(index * (chipSize + spacing), y);
+        c.background.color = new Color(tint.r * 0.45f, tint.g * 0.45f, tint.b * 0.45f, 0.9f);
+        c.bar.color = tint;
+        c.bar.fillAmount = fraction;
+        c.label.text = label;
     }
 }
