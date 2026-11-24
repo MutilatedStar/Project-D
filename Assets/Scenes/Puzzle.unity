@@ -3856,11 +3856,6 @@ SpriteRenderer:
   m_WasSpriteAssigned: 1
   m_SpriteSortPoint: 0
   m_BlendShapeWeights: []
---- !u!212 &141550689 stripped
-SpriteRenderer:
-  m_CorrespondingSourceObject: {fileID: 5628018141983903107, guid: ef67ba864d1ecc042b5f4cf48455c0a6, type: 3}
-  m_PrefabInstance: {fileID: 1039362041}
-  m_PrefabAsset: {fileID: 0}
 --- !u!1 &152491615 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 4921670450697786203, guid: 8d2f9075099bba04589b4263273b2d37, type: 3}
@@ -40192,6 +40187,10 @@ MonoBehaviour:
   healToFull: 1
   healAmount: 50
   usedFountainSprite: {fileID: 0}
+  healTiles:
+  - tileName: Heal Tile
+    healAmount: 10
+    everySeconds: 1
   startingFloor: 1
   floors:
   - label: 
@@ -64256,6 +64255,15 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 5628018141983903104, guid: ef67ba864d1ecc042b5f4cf48455c0a6, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1039362075}
+    - targetCorrespondingSourceObject: {fileID: 5628018141983903104, guid: ef67ba864d1ecc042b5f4cf48455c0a6, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1039362078}
+    - targetCorrespondingSourceObject: {fileID: 5628018141983903104, guid: ef67ba864d1ecc042b5f4cf48455c0a6, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1039362081}
+    - targetCorrespondingSourceObject: {fileID: 5628018141983903104, guid: ef67ba864d1ecc042b5f4cf48455c0a6, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1039362080}
   m_SourcePrefab: {fileID: 100100000, guid: ef67ba864d1ecc042b5f4cf48455c0a6, type: 3}
 --- !u!1 &1039362042 stripped
 GameObject:
@@ -64279,19 +64287,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3c221295678f64b459f7f296cd5a51b0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Cainos.PixelArtTopDown_Basic.TopDownCharacterController
-  speed: 5
-  sprintMultiplier: 1.5
-  sprintToggle: 1
-  analogMovement: 1
-  footstepSource: {fileID: 1582288550}
-  stepClips:
-  - {fileID: 8300000, guid: 5427b6de0e7f04043a5cc81f83af251e, type: 3}
-  - {fileID: 8300000, guid: a973be3b20619d1428272cf692b47bc8, type: 3}
-  walkStepInterval: 0.2
-  sprintStepInterval: 0.3
-  walkPitchVariation: 0.04
-  sprintPitchVariation: 0.07
-  stepTimingVariation: 0.05
 --- !u!114 &1039362045
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -64396,6 +64391,10 @@ MonoBehaviour:
   healToFull: 1
   healAmount: 50
   usedFountainSprite: {fileID: 0}
+  healTiles:
+  - tileName: Heal Tile
+    healAmount: 10
+    everySeconds: 1
   startingFloor: 1
   floors: []
   floorScreen: {fileID: 0}
@@ -64417,283 +64416,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9476ac7b1392e844dbaa810f347b9a15, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SwordController
-  swords:
-  - swordName: Short Sword
-    unlockedAtStart: 1
-    damage: 15
-    critChance: 0
-    critMultiplier: 2
-    maxTargets: 2
-    lifeSteal: 0
-    swingTime: 0.25
-    cooldown: 0.15
-    reach: 1.2
-    arc: 110
-    knockback: 0.5
-    spinChargeTime: 1.5
-    spinTime: 0.5
-    spinDamageMultiplier: 1.5
-    glowColor:
-      r: 1
-      g: 0.95
-      b: 0.6
-      a: 1
-    chainTargets: 0
-    chainRange: 3
-    chainFalloff: 0.7
-    boltColor:
-      r: 1
-      g: 1
-      b: 0.5
-      a: 1
-    chainDamageMultiplier: 1
-    shockSwingFactor: 0.6
-    shockTime: 3
-    slowFactor: 1
-    slowTime: 3
-    freezeChance: 0
-    freezeTime: 2.5
-    trailDuration: 0
-    trailLength: 2
-    trailWidth: 0.6
-    trailDamage: 3
-    trailTickTime: 0.5
-    sprite: {fileID: 0}
-    spriteScale: 1
-    spriteWidth: 1
-    spriteHeight: 1
-    fitHitboxToSprite: 1
-    hitReachPadding: 0
-    spriteRotationOffset: -90
-    placeholderColor:
-      r: 0.85
-      g: 0.85
-      b: 0.9
-      a: 1
-    placeholderThickness: 0.2
-    showBladeParticles: 1
-    particleAmount: 1
-  - swordName: Broadsword
-    unlockedAtStart: 1
-    damage: 35
-    critChance: 0
-    critMultiplier: 2
-    maxTargets: 5
-    lifeSteal: 0
-    swingTime: 0.5
-    cooldown: 0.35
-    reach: 1.6
-    arc: 150
-    knockback: 1.4
-    spinChargeTime: 2
-    spinTime: 0.7
-    spinDamageMultiplier: 1.5
-    glowColor:
-      r: 1
-      g: 0.8
-      b: 0.5
-      a: 1
-    chainTargets: 0
-    chainRange: 3
-    chainFalloff: 0.7
-    boltColor:
-      r: 1
-      g: 1
-      b: 0.5
-      a: 1
-    chainDamageMultiplier: 1
-    shockSwingFactor: 0.6
-    shockTime: 3
-    slowFactor: 1
-    slowTime: 3
-    freezeChance: 0
-    freezeTime: 2.5
-    trailDuration: 0
-    trailLength: 2
-    trailWidth: 0.6
-    trailDamage: 3
-    trailTickTime: 0.5
-    sprite: {fileID: 0}
-    spriteScale: 1
-    spriteWidth: 1
-    spriteHeight: 1
-    fitHitboxToSprite: 1
-    hitReachPadding: 0
-    spriteRotationOffset: -90
-    placeholderColor:
-      r: 0.55
-      g: 0.7
-      b: 1
-      a: 1
-    placeholderThickness: 0.3
-    showBladeParticles: 1
-    particleAmount: 1
-  - swordName: Dagger
-    unlockedAtStart: 1
-    damage: 8
-    critChance: 0.1
-    critMultiplier: 2.5
-    maxTargets: 1
-    lifeSteal: 0
-    swingTime: 0.15
-    cooldown: 0.05
-    reach: 0.9
-    arc: 80
-    knockback: 0.2
-    spinChargeTime: 1
-    spinTime: 0.35
-    spinDamageMultiplier: 1.5
-    glowColor:
-      r: 0.95
-      g: 0.95
-      b: 0.7
-      a: 1
-    chainTargets: 0
-    chainRange: 3
-    chainFalloff: 0.7
-    boltColor:
-      r: 1
-      g: 1
-      b: 0.5
-      a: 1
-    chainDamageMultiplier: 1
-    shockSwingFactor: 0.6
-    shockTime: 3
-    slowFactor: 1
-    slowTime: 3
-    freezeChance: 0
-    freezeTime: 2.5
-    trailDuration: 0
-    trailLength: 2
-    trailWidth: 0.6
-    trailDamage: 3
-    trailTickTime: 0.5
-    sprite: {fileID: 0}
-    spriteScale: 1
-    spriteWidth: 1
-    spriteHeight: 1
-    fitHitboxToSprite: 1
-    hitReachPadding: 0
-    spriteRotationOffset: -90
-    placeholderColor:
-      r: 0.95
-      g: 0.95
-      b: 0.7
-      a: 1
-    placeholderThickness: 0.15
-    showBladeParticles: 1
-    particleAmount: 1
-  - swordName: Lightning Sword
-    unlockedAtStart: 1
-    damage: 12
-    critChance: 0
-    critMultiplier: 2
-    maxTargets: 1
-    lifeSteal: 0
-    swingTime: 0.22
-    cooldown: 0.2
-    reach: 1.3
-    arc: 100
-    knockback: 0.4
-    spinChargeTime: 1.5
-    spinTime: 0.5
-    spinDamageMultiplier: 1.5
-    glowColor:
-      r: 1
-      g: 0.95
-      b: 0.3
-      a: 1
-    chainTargets: 4
-    chainRange: 3
-    chainFalloff: 0.7
-    boltColor:
-      r: 1
-      g: 1
-      b: 0.5
-      a: 1
-    chainDamageMultiplier: 1
-    shockSwingFactor: 0.6
-    shockTime: 3
-    slowFactor: 1
-    slowTime: 3
-    freezeChance: 0
-    freezeTime: 2.5
-    trailDuration: 0
-    trailLength: 2
-    trailWidth: 0.6
-    trailDamage: 3
-    trailTickTime: 0.5
-    sprite: {fileID: 0}
-    spriteScale: 1
-    spriteWidth: 1
-    spriteHeight: 1
-    fitHitboxToSprite: 1
-    hitReachPadding: 0
-    spriteRotationOffset: -90
-    placeholderColor:
-      r: 1
-      g: 0.95
-      b: 0.35
-      a: 1
-    placeholderThickness: 0.2
-    showBladeParticles: 1
-    particleAmount: 1
-  - swordName: Fire Sword
-    unlockedAtStart: 1
-    damage: 14
-    critChance: 0
-    critMultiplier: 2
-    maxTargets: 2
-    lifeSteal: 0
-    swingTime: 0.3
-    cooldown: 0.2
-    reach: 1.3
-    arc: 110
-    knockback: 0.5
-    spinChargeTime: 1.5
-    spinTime: 0.5
-    spinDamageMultiplier: 1.5
-    glowColor:
-      r: 1
-      g: 0.5
-      b: 0.1
-      a: 1
-    chainTargets: 0
-    chainRange: 3
-    chainFalloff: 0.7
-    boltColor:
-      r: 1
-      g: 1
-      b: 0.5
-      a: 1
-    chainDamageMultiplier: 1
-    shockSwingFactor: 0.6
-    shockTime: 3
-    slowFactor: 1
-    slowTime: 3
-    freezeChance: 0
-    freezeTime: 2.5
-    trailDuration: 10
-    trailLength: 2
-    trailWidth: 0.6
-    trailDamage: 3
-    trailTickTime: 0.5
-    sprite: {fileID: 0}
-    spriteScale: 1
-    spriteWidth: 1
-    spriteHeight: 1
-    fitHitboxToSprite: 1
-    hitReachPadding: 0
-    spriteRotationOffset: -90
-    placeholderColor:
-      r: 1
-      g: 0.45
-      b: 0.1
-      a: 1
-    placeholderThickness: 0.2
-    showBladeParticles: 1
-    particleAmount: 1
-  - swordName: Ice Sword
+  frostSword:
+    swordName: Ice Sword
     unlockedAtStart: 1
     damage: 12
     critChance: 0
@@ -64708,31 +64432,23 @@ MonoBehaviour:
     spinChargeTime: 1.5
     spinTime: 0.5
     spinDamageMultiplier: 1.5
-    glowColor:
-      r: 0.4
-      g: 0.9
-      b: 1
-      a: 1
+    glowColor: {r: 0.4, g: 0.9, b: 1, a: 1}
     chainTargets: 0
     chainRange: 3
     chainFalloff: 0.7
-    boltColor:
-      r: 1
-      g: 1
-      b: 0.5
-      a: 1
+    boltColor: {r: 1, g: 1, b: 0.5, a: 1}
     chainDamageMultiplier: 1
     shockSwingFactor: 0.6
     shockTime: 3
+    trailDuration: 0
+    trailLength: 2
+    trailWidth: 0.6
+    trailDamage: 3
+    trailTickTime: 0.5
     slowFactor: 0.5
     slowTime: 3
     freezeChance: 0.12
     freezeTime: 2.5
-    trailDuration: 0
-    trailLength: 2
-    trailWidth: 0.6
-    trailDamage: 3
-    trailTickTime: 0.5
     sprite: {fileID: 0}
     spriteScale: 1
     spriteWidth: 1
@@ -64740,20 +64456,172 @@ MonoBehaviour:
     fitHitboxToSprite: 1
     hitReachPadding: 0
     spriteRotationOffset: -90
-    placeholderColor:
-      r: 0.5
-      g: 0.9
-      b: 1
-      a: 1
+    placeholderColor: {r: 0.5, g: 0.9, b: 1, a: 1}
     placeholderThickness: 0.2
     showBladeParticles: 1
     particleAmount: 1
   startingSword: 0
+  scannerLens:
+    toolName: Scanner Lens
+    unlockedAtStart: 1
+    icon: {fileID: 0}
+    color: {r: 0.55, g: 0.95, b: 1, a: 1}
+    shortLabel: LENS
+    holdToFreezeTime: 0.35
+    tapLensSeconds: 6
+    cooldown: 0.5
+    panSpeed: 9
+    maxPanDistance: 16
+    player1PanKeys: 77000000730000006100000064000000i
+    player2PanKeys: 11010000120100001401000013010000i
+    alsoStopTimeScale: 1
+    trapColor: {r: 1, g: 0.15, b: 0.15, a: 1}
+    arrowColor: {r: 1, g: 0.9, b: 0.2, a: 1}
+    contrast: 1.15
+    rescanInterval: 1
+    trapLayers:
+      serializedVersion: 2
+      m_Bits: 0
+    collectableLayers:
+      serializedVersion: 2
+      m_Bits: 0
+    trapNames:
+    - trap
+    - spike
+    - laser
+    - arrow
+    - turret
+    collectableNames:
+    - collect
+    - pickup
+    - coin
+    - gem
+    - key
+    - item
+  magicBoots:
+    toolName: Magic Boots
+    unlockedAtStart: 1
+    icon: {fileID: 0}
+    color: {r: 0.45, g: 1, b: 0.7, a: 1}
+    shortLabel: BOOT
+    cooldown: 3
+    dashCharges: 2
+    dashDistance: 3.2
+    dashTime: 0.16
+    dashDamage: 10
+    dashKnockback: 1.2
+    dashGap: 0.12
+    hitRadius: 0.7
+    superHoldTime: 0.6
+    superDashDistance: 8
+    superDashTime: 0.35
+    superDashDamage: 25
+    superDashKnockback: 2.5
+    superDashCost: 2
+    speedBuffMultiplier: 1.35
+    speedBuffSeconds: 2.5
+    superSpeedBuffSeconds: 4
+    hover: 1
+    hoverGlowOffset: {x: 0, y: 0}
+    hoverGlowSize: 1.1
+    canClimb: 1
+    climbableTileNames:
+    - Climbable
+    partialNameMatch: 1
+    climbSpeedFactor: 0.7
+    climbProbeDistance: 0.6
+  pulseBeam:
+    toolName: Pulse Beam
+    unlockedAtStart: 1
+    icon: {fileID: 0}
+    color: {r: 0.85, g: 0.5, b: 1, a: 1}
+    shortLabel: BEAM
+    chargeTime: 2.2
+    maxHoldTime: 5
+    cooldown: 0.5
+    minLength: 3
+    maxLength: 7
+    minWidth: 0.35
+    maxWidth: 1.4
+    minDamagePerSecond: 12
+    maxDamagePerSecond: 45
+    tickTime: 0.15
+    tickKnockback: 0.12
+    minHoldDistance: 0.9
+    maxHoldDistance: 4.5
+    holdStep: 0.5
+    carrySpeed: 14
+    beamColor: {r: 0.85, g: 0.5, b: 1, a: 1}
+    coreColor: {r: 1, g: 0.95, b: 1, a: 1}
+  grappleArm:
+    toolName: Grapple Arm
+    unlockedAtStart: 1
+    icon: {fileID: 0}
+    color: {r: 1, g: 0.65, b: 0.25, a: 1}
+    shortLabel: GRAP
+    tapMaxTime: 0.22
+    swipeReach: 1.4
+    swipeArc: 120
+    swipeTime: 0.2
+    swipeDamage: 14
+    swipeKnockback: 0.8
+    swipeCooldown: 0.3
+    cooldown: 0.8
+    chargeTime: 1.2
+    minRange: 2.5
+    maxRange: 9
+    hookSpeed: 32
+    pullSpeed: 18
+    stopDistance: 0.8
+    maxPullTime: 1.5
+    pullToEverything: 0
+    pullNames:
+    - Wall
+    jumpCooldown: 1
+    lockWhileFalling: 1
+    reelSpeed: 14
+    reelGap: 0.2
+    grabFoes: 1
+    hookDamage: 6
+    foePullDistance: 1.8
+    ropeColor: {r: 0.9, g: 0.8, b: 0.6, a: 1}
+    swipeColor: {r: 1, g: 0.75, b: 0.3, a: 1}
+  bubbleShield:
+    toolName: Bubble Shield
+    unlockedAtStart: 1
+    icon: {fileID: 0}
+    color: {r: 0.4, g: 0.8, b: 1, a: 1}
+    shortLabel: BUBL
+    cooldown: 9
+    bubbleSeconds: 4
+    radius: 1.1
+    damageTakenMultiplier: 0.5
+    lingerSeconds: 2
+    blockProjectiles: 1
+    blockLasers: 1
+    projectileLayers:
+      serializedVersion: 2
+      m_Bits: 0
+    projectileNames:
+    - arrow
+    - bolt
+    - projectile
+    laserLayers:
+      serializedVersion: 2
+      m_Bits: 0
+    laserNames:
+    - laser
+    - beam
+    popMovingProjectiles: 1
+  interactableMask:
+    serializedVersion: 2
+    m_Bits: 0
   numberKeysPickSword: 1
   jumpLiftScale: 1
   pivotOffset: {x: 0, y: 0.3}
   windup: 0.15
   foeMask:
+    serializedVersion: 2
     m_Bits: 4294967295
   sfxSource: {fileID: 0}
   critClip: {fileID: 0}
@@ -64822,16 +64690,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerGlow
   showInSinglePlayer: 0
-  player1Color:
-    r: 0.25
-    g: 0.55
-    b: 1
-    a: 1
-  player2Color:
-    r: 1
-    g: 0.6
-    b: 0.15
-    a: 1
+  player1Color: {r: 0.25, g: 0.55, b: 1, a: 1}
+  player2Color: {r: 1, g: 0.6, b: 0.15, a: 1}
   sprite: {fileID: 0}
   tintStrength: 0.65
   colourSpeed: 10
@@ -64852,44 +64712,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 50f8ceca767ab0d48885327db6270c48, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Cainos.PixelArtTopDown_Basic.TopDownJump
-  jumpHeight: 0.7
-  jumpDuration: 0.55
-  cooldown: 0.1
-  airSpeedMultiplier: 1.15
-  hurtboxes: []
-  bodyRenderer: {fileID: 141550689}
-  shadow: {fileID: 0}
-  shadowOffset: {x: 0, y: 0}
-  shadowSize: {x: 0.8, y: 0.4}
-  shadowOpacity: 0.35
-  shadowShrink: 0.6
-  liftedParts: []
-  jumpOver:
-    physicsLayers:
-      serializedVersion: 2
-      m_Bits: 0
-    sortingLayers: []
-  neverJumpOver:
-    physicsLayers:
-      serializedVersion: 2
-      m_Bits: 0
-    sortingLayers: []
-  jumpOn:
-    physicsLayers:
-      serializedVersion: 2
-      m_Bits: 0
-    sortingLayers: []
-  levels:
-  - physicsLayer: Layer 2
-    sortingLayer: Layer 2
-  - physicsLayer: Layer 3
-    sortingLayer: Layer 3
-  heightPerLevel: 0
-  drawAboveWhileAirborne: 1
-  neverDrawOver: []
-  scanRadius: 1.25
-  blockedLandingSeconds: 1
-  logKeysAtStart: 1
 --- !u!114 &1039362060
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -64905,11 +64727,7 @@ MonoBehaviour:
   sprite: {fileID: 0}
   fallAngle: 90
   fallTime: 0.25
-  downedColor:
-    r: 0.5
-    g: 0.5
-    b: 0.5
-    a: 1
+  downedColor: {r: 0.5, g: 0.5, b: 0.5, a: 1}
   grayStrength: 0.9
   reviveRadius: 1
   reviveSeconds: 2.5
@@ -64945,16 +64763,8 @@ MonoBehaviour:
   barOffset: {x: 0, y: 1.1}
   barWidth: 1.2
   barHeight: 0.16
-  barBackColor:
-    r: 0.08
-    g: 0.08
-    b: 0.1
-    a: 0.85
-  barFillColor:
-    r: 0.35
-    g: 0.9
-    b: 0.4
-    a: 1
+  barBackColor: {r: 0.08, g: 0.08, b: 0.1, a: 0.85}
+  barFillColor: {r: 0.35, g: 0.9, b: 0.4, a: 1}
 --- !u!114 &1039362063
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -64998,223 +64808,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 01d1624fd943cda4cb34b8d4dc27725b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SwordController
-  swords:
-  - swordName: Short Sword
-    unlockedAtStart: 1
-    damage: 15
-    critChance: 0
-    critMultiplier: 2
-    maxTargets: 2
-    lifeSteal: 0
-    swingTime: 0.25
-    cooldown: 0.15
-    reach: 1.2
-    arc: 110
-    knockback: 0.5
-    spinChargeTime: 1.5
-    spinTime: 0.5
-    spinDamageMultiplier: 1.5
-    glowColor: {r: 1, g: 0.95, b: 0.6, a: 1}
-    chainTargets: 0
-    chainRange: 3
-    chainFalloff: 0.7
-    boltColor: {r: 1, g: 1, b: 0.5, a: 1}
-    chainDamageMultiplier: 1
-    shockSwingFactor: 0.6
-    shockTime: 3
-    slowFactor: 1
-    slowTime: 3
-    freezeChance: 0
-    freezeTime: 2.5
-    trailDuration: 0
-    trailLength: 2
-    trailWidth: 0.6
-    trailDamage: 3
-    trailTickTime: 0.5
-    sprite: {fileID: -6848334295082469151, guid: 9e38bf365affc0544bffd84aeee89c96, type: 3}
-    spriteScale: 6
-    spriteWidth: 1
-    spriteHeight: 1
-    fitHitboxToSprite: 1
-    hitReachPadding: 0
-    spriteRotationOffset: -90
-    placeholderColor: {r: 0.85, g: 0.85, b: 0.9, a: 1}
-    placeholderThickness: 0.2
-    showBladeParticles: 1
-    particleAmount: 1
-  - swordName: Broadsword
-    unlockedAtStart: 1
-    damage: 35
-    critChance: 0
-    critMultiplier: 2
-    maxTargets: 5
-    lifeSteal: 0
-    swingTime: 0.5
-    cooldown: 0.35
-    reach: 1.6
-    arc: 150
-    knockback: 1.4
-    spinChargeTime: 2
-    spinTime: 0.7
-    spinDamageMultiplier: 1.5
-    glowColor: {r: 1, g: 0.8, b: 0.5, a: 1}
-    chainTargets: 0
-    chainRange: 3
-    chainFalloff: 0.7
-    boltColor: {r: 1, g: 1, b: 0.5, a: 1}
-    chainDamageMultiplier: 1
-    shockSwingFactor: 0.6
-    shockTime: 3
-    slowFactor: 1
-    slowTime: 3
-    freezeChance: 0
-    freezeTime: 2.5
-    trailDuration: 0
-    trailLength: 2
-    trailWidth: 0.6
-    trailDamage: 3
-    trailTickTime: 0.5
-    sprite: {fileID: -5686649958548786699, guid: 9e38bf365affc0544bffd84aeee89c96, type: 3}
-    spriteScale: 7
-    spriteWidth: 1
-    spriteHeight: 1
-    fitHitboxToSprite: 1
-    hitReachPadding: 0
-    spriteRotationOffset: -90
-    placeholderColor: {r: 0.55, g: 0.7, b: 1, a: 1}
-    placeholderThickness: 0.3
-    showBladeParticles: 1
-    particleAmount: 1
-  - swordName: Dagger
-    unlockedAtStart: 1
-    damage: 8
-    critChance: 0.1
-    critMultiplier: 2.5
-    maxTargets: 1
-    lifeSteal: 0.5
-    swingTime: 0.15
-    cooldown: 0.05
-    reach: 0.9
-    arc: 80
-    knockback: 0.2
-    spinChargeTime: 1
-    spinTime: 0.35
-    spinDamageMultiplier: 1.5
-    glowColor: {r: 0.95, g: 0.95, b: 0.7, a: 1}
-    chainTargets: 0
-    chainRange: 3
-    chainFalloff: 0.7
-    boltColor: {r: 1, g: 1, b: 0.5, a: 1}
-    chainDamageMultiplier: 1
-    shockSwingFactor: 0.6
-    shockTime: 3
-    slowFactor: 1
-    slowTime: 3
-    freezeChance: 0
-    freezeTime: 2.5
-    trailDuration: 0
-    trailLength: 2
-    trailWidth: 0.6
-    trailDamage: 3
-    trailTickTime: 0.5
-    sprite: {fileID: 1194522240913290493, guid: 9e38bf365affc0544bffd84aeee89c96, type: 3}
-    spriteScale: 4
-    spriteWidth: 1
-    spriteHeight: 1
-    fitHitboxToSprite: 1
-    hitReachPadding: 0
-    spriteRotationOffset: -90
-    placeholderColor: {r: 0.95, g: 0.95, b: 0.7, a: 1}
-    placeholderThickness: 0.15
-    showBladeParticles: 1
-    particleAmount: 1
-  - swordName: Lightning Sword
-    unlockedAtStart: 1
-    damage: 12
-    critChance: 0
-    critMultiplier: 2
-    maxTargets: 1
-    lifeSteal: 0
-    swingTime: 0.22
-    cooldown: 0.2
-    reach: 1.3
-    arc: 100
-    knockback: 0.4
-    spinChargeTime: 1.5
-    spinTime: 0.5
-    spinDamageMultiplier: 1.5
-    glowColor: {r: 1, g: 0.95, b: 0.3, a: 1}
-    chainTargets: 4
-    chainRange: 3
-    chainFalloff: 0.7
-    boltColor: {r: 1, g: 1, b: 0.5, a: 1}
-    chainDamageMultiplier: 1
-    shockSwingFactor: 0.6
-    shockTime: 3
-    slowFactor: 1
-    slowTime: 3
-    freezeChance: 0
-    freezeTime: 2.5
-    trailDuration: 0
-    trailLength: 2
-    trailWidth: 0.6
-    trailDamage: 3
-    trailTickTime: 0.5
-    sprite: {fileID: 3868107513445308080, guid: 9e38bf365affc0544bffd84aeee89c96, type: 3}
-    spriteScale: 6
-    spriteWidth: 1
-    spriteHeight: 1
-    fitHitboxToSprite: 1
-    hitReachPadding: 0
-    spriteRotationOffset: -90
-    placeholderColor: {r: 1, g: 0.95, b: 0.35, a: 1}
-    placeholderThickness: 0.2
-    showBladeParticles: 1
-    particleAmount: 1
-  - swordName: Fire Sword
-    unlockedAtStart: 1
-    damage: 14
-    critChance: 0
-    critMultiplier: 2
-    maxTargets: 2
-    lifeSteal: 0
-    swingTime: 0.3
-    cooldown: 0.2
-    reach: 1.3
-    arc: 110
-    knockback: 0.5
-    spinChargeTime: 1.5
-    spinTime: 0.5
-    spinDamageMultiplier: 1.5
-    glowColor: {r: 1, g: 0.5, b: 0.1, a: 1}
-    chainTargets: 0
-    chainRange: 3
-    chainFalloff: 0.7
-    boltColor: {r: 1, g: 1, b: 0.5, a: 1}
-    chainDamageMultiplier: 1
-    shockSwingFactor: 0.6
-    shockTime: 3
-    slowFactor: 1
-    slowTime: 3
-    freezeChance: 0
-    freezeTime: 2.5
-    trailDuration: 10
-    trailLength: 2
-    trailWidth: 0.6
-    trailDamage: 3
-    trailTickTime: 0.5
-    sprite: {fileID: 7086858349940441145, guid: 9e38bf365affc0544bffd84aeee89c96, type: 3}
-    spriteScale: 6
-    spriteWidth: 1
-    spriteHeight: 1
-    fitHitboxToSprite: 1
-    hitReachPadding: 0
-    spriteRotationOffset: -90
-    placeholderColor: {r: 1, g: 0.45, b: 0.1, a: 1}
-    placeholderThickness: 0.2
-    showBladeParticles: 1
-    particleAmount: 1
-  - swordName: Ice Sword
+  frostSword:
+    swordName: Ice Sword
     unlockedAtStart: 1
     damage: 12
     critChance: 0
@@ -65237,17 +64832,17 @@ MonoBehaviour:
     chainDamageMultiplier: 1
     shockSwingFactor: 0.6
     shockTime: 3
-    slowFactor: 0.5
-    slowTime: 3
-    freezeChance: 0.12
-    freezeTime: 2.5
     trailDuration: 0
     trailLength: 2
     trailWidth: 0.6
     trailDamage: 3
     trailTickTime: 0.5
-    sprite: {fileID: 4326481270412157315, guid: 9e38bf365affc0544bffd84aeee89c96, type: 3}
-    spriteScale: 6
+    slowFactor: 0.5
+    slowTime: 3
+    freezeChance: 0.12
+    freezeTime: 2.5
+    sprite: {fileID: 0}
+    spriteScale: 1
     spriteWidth: 1
     spriteHeight: 1
     fitHitboxToSprite: 1
@@ -65258,6 +64853,161 @@ MonoBehaviour:
     showBladeParticles: 1
     particleAmount: 1
   startingSword: 0
+  scannerLens:
+    toolName: Scanner Lens
+    unlockedAtStart: 1
+    icon: {fileID: 0}
+    color: {r: 0.55, g: 0.95, b: 1, a: 1}
+    shortLabel: LENS
+    holdToFreezeTime: 0.35
+    tapLensSeconds: 6
+    cooldown: 0.5
+    panSpeed: 9
+    maxPanDistance: 16
+    player1PanKeys: 77000000730000006100000064000000i
+    player2PanKeys: 11010000120100001401000013010000i
+    alsoStopTimeScale: 1
+    trapColor: {r: 1, g: 0.15, b: 0.15, a: 1}
+    arrowColor: {r: 1, g: 0.9, b: 0.2, a: 1}
+    contrast: 1.15
+    rescanInterval: 1
+    trapLayers:
+      serializedVersion: 2
+      m_Bits: 0
+    collectableLayers:
+      serializedVersion: 2
+      m_Bits: 0
+    trapNames:
+    - trap
+    - spike
+    - laser
+    - arrow
+    - turret
+    collectableNames:
+    - collect
+    - pickup
+    - coin
+    - gem
+    - key
+    - item
+  magicBoots:
+    toolName: Magic Boots
+    unlockedAtStart: 1
+    icon: {fileID: 0}
+    color: {r: 0.45, g: 1, b: 0.7, a: 1}
+    shortLabel: BOOT
+    cooldown: 3
+    dashCharges: 2
+    dashDistance: 3.2
+    dashTime: 0.16
+    dashDamage: 10
+    dashKnockback: 1.2
+    dashGap: 0.12
+    hitRadius: 0.7
+    superHoldTime: 0.6
+    superDashDistance: 8
+    superDashTime: 0.35
+    superDashDamage: 25
+    superDashKnockback: 2.5
+    superDashCost: 2
+    speedBuffMultiplier: 1.35
+    speedBuffSeconds: 2.5
+    superSpeedBuffSeconds: 4
+    hover: 1
+    hoverGlowOffset: {x: 0, y: 0}
+    hoverGlowSize: 1.1
+    canClimb: 1
+    climbableTileNames:
+    - Climbable
+    partialNameMatch: 1
+    climbSpeedFactor: 0.7
+    climbProbeDistance: 0.6
+  pulseBeam:
+    toolName: Pulse Beam
+    unlockedAtStart: 1
+    icon: {fileID: 0}
+    color: {r: 0.85, g: 0.5, b: 1, a: 1}
+    shortLabel: BEAM
+    chargeTime: 2.2
+    maxHoldTime: 5
+    cooldown: 0.5
+    minLength: 3
+    maxLength: 7
+    minWidth: 0.35
+    maxWidth: 1.4
+    minDamagePerSecond: 12
+    maxDamagePerSecond: 45
+    tickTime: 0.15
+    tickKnockback: 0.12
+    minHoldDistance: 0.9
+    maxHoldDistance: 4.5
+    holdStep: 0.5
+    carrySpeed: 14
+    beamColor: {r: 0.85, g: 0.5, b: 1, a: 1}
+    coreColor: {r: 1, g: 0.95, b: 1, a: 1}
+  grappleArm:
+    toolName: Grapple Arm
+    unlockedAtStart: 1
+    icon: {fileID: 0}
+    color: {r: 1, g: 0.65, b: 0.25, a: 1}
+    shortLabel: GRAP
+    tapMaxTime: 0.22
+    swipeReach: 1.4
+    swipeArc: 120
+    swipeTime: 0.2
+    swipeDamage: 14
+    swipeKnockback: 0.8
+    swipeCooldown: 0.3
+    cooldown: 0.8
+    chargeTime: 1.2
+    minRange: 2.5
+    maxRange: 9
+    hookSpeed: 32
+    pullSpeed: 18
+    stopDistance: 0.8
+    maxPullTime: 1.5
+    pullToEverything: 0
+    pullNames:
+    - Wall
+    jumpCooldown: 1
+    lockWhileFalling: 1
+    reelSpeed: 14
+    reelGap: 0.2
+    grabFoes: 1
+    hookDamage: 6
+    foePullDistance: 1.8
+    ropeColor: {r: 0.9, g: 0.8, b: 0.6, a: 1}
+    swipeColor: {r: 1, g: 0.75, b: 0.3, a: 1}
+  bubbleShield:
+    toolName: Bubble Shield
+    unlockedAtStart: 1
+    icon: {fileID: 0}
+    color: {r: 0.4, g: 0.8, b: 1, a: 1}
+    shortLabel: BUBL
+    cooldown: 9
+    bubbleSeconds: 4
+    radius: 1.1
+    damageTakenMultiplier: 0.5
+    lingerSeconds: 2
+    blockProjectiles: 1
+    blockLasers: 1
+    projectileLayers:
+      serializedVersion: 2
+      m_Bits: 0
+    projectileNames:
+    - arrow
+    - bolt
+    - projectile
+    laserLayers:
+      serializedVersion: 2
+      m_Bits: 0
+    laserNames:
+    - laser
+    - beam
+    popMovingProjectiles: 1
+  interactableMask:
+    serializedVersion: 2
+    m_Bits: 0
   numberKeysPickSword: 1
   jumpLiftScale: 1
   pivotOffset: {x: 0, y: 0.3}
@@ -65361,6 +65111,86 @@ MonoBehaviour:
   tickInterval: 1
   drainDuration: 0
   pauseAfterHeal: 5
+--- !u!114 &1039362078
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1039362042}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 96829d12036ceb6419426ca253551bfe, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Cainos.PixelArtTopDown_Basic.TopDownCharacterController
+  speed: 3
+  sprintMultiplier: 1.5
+  sprintToggle: 1
+  analogMovement: 1
+  footstepSource: {fileID: 0}
+  stepClips: []
+  walkStepInterval: 0.45
+  sprintStepInterval: 0.3
+  walkPitchVariation: 0.04
+  sprintPitchVariation: 0.07
+  stepTimingVariation: 0.05
+--- !u!114 &1039362080
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1039362042}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e7701a98f8574f241abe4a695d08835a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::CoopInventoryPanel
+  playerNumber: 1
+  footprint: {fileID: 0}
+  fixCanvasAutomatically: 1
+  slotSize: 52
+  spacing: 6
+  showLockedSlots: 1
+  slotColor: {r: 0.1, g: 0.1, b: 0.14, a: 0.85}
+  selectedColor: {r: 0.95, g: 0.8, b: 0.25, a: 0.95}
+  lockedColor: {r: 0.05, g: 0.05, b: 0.07, a: 0.55}
+  cooldownColor: {r: 0, g: 0, b: 0, a: 0.65}
+  showSlotNumbers: 1
+  chipSize: 30
+  font: {fileID: 0}
+  chipFontSize: 11
+  labelFontSize: 11
+--- !u!114 &1039362081
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1039362042}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5b4c4c6e36c7c2a48937b739c66036eb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::InventoryItemSlot
+  itemName: 
+  description: 
+  icon: {fileID: 0}
+  nameText: {fileID: 0}
+  coverColor: {r: 0.1, g: 0.1, b: 0.1, a: 1}
+  foundColor: {r: 1, g: 1, b: 1, a: 0}
+  popupWidth: 260
+  popupGap: 8
+  popupBackground: {r: 0.08, g: 0.08, b: 0.1, a: 0.95}
+  nameColor: {r: 1, g: 1, b: 1, a: 1}
+  descriptionColor: {r: 0.85, g: 0.85, b: 0.85, a: 1}
+  nameFontSize: 22
+  descriptionFontSize: 18
+  font: {fileID: 0}
+  suspectScriptName: Suspect
+  worldCamera: {fileID: 0}
+  logDrops: 1
+  debugLog: 1
 --- !u!1 &1042535565
 GameObject:
   m_ObjectHideFlags: 0
@@ -66217,6 +66047,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 396bc59c65f68734f8cc028bdf2d8eae, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::EndScreens
+  endingScene: Ending
+  failureEndingScene: Failure Ending
+  delay: 0
+  loadFailureWhenTeamWiped: 0
 --- !u!114 &1079388830
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -74547,35 +74381,31 @@ MonoBehaviour:
   particlesEnabled: 1
   soundEnabled: 1
   glowOverCharacters: 1
-  lava:
+  electric:
     enabled: 1
     glow: 1
-    glowColour: {r: 1, g: 0.42, b: 0.08, a: 1}
-    glowHighlight: {r: 1, g: 0.78, b: 0.3, a: 1}
-    glowOpacity: 1
+    glowColour: {r: 1, g: 0.86, b: 0.3, a: 1}
+    glowHighlight: {r: 1, g: 0.96, b: 0.6, a: 1}
+    glowOpacity: 0.55
     glowAlways: 0
-    glowPulse: 0.35
-    glowPulseSeconds: 3.5
-    ambientLevel: 3
-    walkingLevel: 3
-    fallbackColour: {r: 1, g: 0.5, b: 0.1, a: 1}
-    sound: 1
-    stepClips: []
-    splashClips: []
-    volume: {x: 0.6, y: 0.9}
-    pitch: {x: 0.92, y: 1.08}
-  water:
-    enabled: 1
-    glow: 1
-    glowColour: {r: 0.25, g: 0.65, b: 1, a: 1}
-    glowHighlight: {r: 0.6, g: 0.92, b: 1, a: 1}
-    glowOpacity: 0.67
-    glowAlways: 1
-    glowPulse: 0.35
-    glowPulseSeconds: 3.5
-    ambientLevel: 3
-    walkingLevel: 3
-    fallbackColour: {r: 0.5, g: 0.8, b: 1, a: 1}
+    glowPulse: 0.25
+    glowPulseSeconds: 2.2
+    glowFlash: {r: 1, g: 1, b: 0.85, a: 1}
+    glowSparkBoost: 0.8
+    glowSparkSeconds: 0.3
+    glowFlicker: 0.2
+    ambientLevel: 2
+    walkingLevel: 2
+    fallbackColour: {r: 1, g: 0.92, b: 0.35, a: 1}
+    sparkColours:
+    - {r: 1, g: 0.93, b: 0.3, a: 1}
+    - {r: 1, g: 1, b: 0.75, a: 1}
+    - {r: 1, g: 0.78, b: 0.2, a: 1}
+    sparksUseTileColours: 0
+    sparkFlicker: 0.6
+    sparkJitterPixels: 1.5
+    sparkHaloPixels: 22
+    sparkHaloOpacity: 0.55
     sound: 1
     stepClips: []
     splashClips: []
@@ -74614,8 +74444,7 @@ MonoBehaviour:
   wallPadding: 0.1
   sortingOrdersAbovePlayers: 2
   logSetup: 1
-  fallbackLavaName: lava
-  fallbackWaterName: water
+  fallbackElectricName: electric
   rescanSeconds: 1
 --- !u!4 &1436131602
 Transform:
@@ -80324,7 +80153,9 @@ MonoBehaviour:
   floorMask:
     serializedVersion: 2
     m_Bits: 0
+  lastFloor: 4
   healOnDescent: 1
+  endScreens: {fileID: 0}
   hazardsEnabled: 1
   hazardTilemaps:
   - {fileID: 1853822846}
@@ -80333,17 +80164,17 @@ MonoBehaviour:
   logHazards: 1
   lavaName: lava
   lavaHurts: 01000000i
-  lavaDamage: 10
+  lavaSecondsToDie: 2.5
+  lavaCoolSeconds: 2
+  lavaTint: {r: 1, g: 0.1, b: 0.1, a: 1}
   waterName: water
   waterHurts: 02000000i
-  waterDamage: 10
-  spikeName: spike-trap
-  spikeTilemaps: []
-  safeSpikeFrames: 0000000001000000i
-  spikeDamage: 100
-  spikeCooldown: 1
-  spikeStuckSeconds: 3
-  logSpikeReads: 1
+  waterDamagePerTick: 10
+  waterSlowFactor: 0.5
+  waterSlowSeconds: 0.25
+  electricName: electric
+  electricHurts: 01000000020000000300000004000000i
+  electricDamage: 5
   removeStrayFoes: 1
   checkInterval: 0.25
   graceSeconds: 1
@@ -311399,9 +311230,12 @@ MonoBehaviour:
   slotColor: {r: 0.1, g: 0.1, b: 0.14, a: 0.85}
   selectedColor: {r: 0.95, g: 0.8, b: 0.25, a: 0.95}
   lockedColor: {r: 0.05, g: 0.05, b: 0.07, a: 0.55}
+  cooldownColor: {r: 0, g: 0, b: 0, a: 0.65}
+  showSlotNumbers: 1
   chipSize: 30
   font: {fileID: 0}
   chipFontSize: 11
+  labelFontSize: 11
 --- !u!1 &2088228879
 GameObject:
   m_ObjectHideFlags: 0
