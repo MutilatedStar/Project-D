@@ -512,7 +512,7 @@ namespace Cainos.PixelArtTopDown_Basic
 
         // ------------------------------------------------------------ picking things up
 
-        private readonly HashSet<int> examined = new HashSet<int>();
+        private readonly HashSet<EntityId> examined = new HashSet<EntityId>();
         private float rescanTimer;
 
         /// <summary>
@@ -545,7 +545,7 @@ namespace Cainos.PixelArtTopDown_Basic
                 if (rb == null) continue;
 
                 GameObject go = rb.gameObject;
-                if (!examined.Add(go.GetInstanceID())) continue;   // looked at before
+                if (!examined.Add(go.GetEntityId())) continue;   // looked at before
 
                 if (rb.bodyType == RigidbodyType2D.Static) continue;
                 if (rb.bodyType == RigidbodyType2D.Kinematic && !includeKinematicBodies) continue;
