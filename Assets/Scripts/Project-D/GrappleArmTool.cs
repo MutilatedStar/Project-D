@@ -1,15 +1,21 @@
 using System.Collections.Generic;
 using UnityEngine;
+using TopDownJump = Cainos.PixelArtTopDown_Basic.TopDownJump;
 
 /// <summary>
 /// GRAPPLE ARM (built by SwordController; nothing to add by hand).
 ///
 ///   Tap   a quick swipe in front of the player that hurts foes (and breaks crates, like the sword did).
 ///   Hold  charge the grapple: the longer the button is held the FURTHER the hook goes (a faint line shows how far). Let go to fire it.
-///           Wall          the hook grabs on and PULLS THE PLAYER to it.
+///           Wall          the hook grabs on and PULLS THE PLAYER to it. A wall is whatever the game's wall check says, or anything whose name
+///                         (or its parent's name) contains one of the Pull Names ("Wall" by default).
+///           Everything    with Pull To Everything ON, any solid thing the hook touches pulls the player to it (crates and other interactables too).
 ///           Interactable  (a ToolInteractable, or anything on the Interactable Mask layers) it is REELED IN to the player.
 ///           Foe           a little damage, and the foe is yanked toward the player (turn this off with Grab Foes).
 ///           Nothing       the hook flies out to its range and comes back.
+///
+///   After a pull the player is free to jump. A jump puts the GRAPPLE (not the tap swipe) on a short lock, counted from take-off, so the player
+///   cannot chain jump -> grapple -> jump to stay in the air; the grapple is also locked while the player is falling down a level.
 /// </summary>
 public class GrappleArmTool : PlayerTool
 {
@@ -51,6 +57,20 @@ public class GrappleArmTool : PlayerTool
         [Tooltip("The pull gives up after this many seconds.")]
         [Min(0.2f)] public float maxPullTime = 1.5f;
 
+        [Header("What pulls the player")]
+        [Tooltip("ON: the hook pulls the player to ANY solid thing it hits: walls, crates and other interactables (pulled to instead of reeled in) and any other solid object. " +
+                 "Foes still follow the Foes settings and triggers never count. OFF: only walls pull the player; interactables are reeled in.")]
+        public bool pullToEverything = false;
+        [Tooltip("Something also counts as a wall when its name, or its parent's name, contains one of these words (not case sensitive). " +
+                 "Catches wall tilemaps the game's own wall check misses. Empty = only the game's wall check.")]
+        public string[] pullNames = new string[] { "Wall" };
+
+        [Header("Jumping")]
+        [Tooltip("Seconds the grapple is locked after the player jumps, counted from take-off. The tap swipe still works. Stops jump-grapple-jump chains that keep the player in the air. 0 = a jump never locks it.")]
+        [Min(0f)] public float jumpCooldown = 1f;
+        [Tooltip("ON: the grapple cannot be fired while the player is falling down a level (a drop, a trapdoor), so it cannot be used to avoid the fall.")]
+        public bool lockWhileFalling = true;
+
         [Header("Reeling in an object")]
         [Min(2f)] public float reelSpeed = 14f;
         [Tooltip("Gap left between the player and the reeled-in object.")]
@@ -75,6 +95,13 @@ public class GrappleArmTool : PlayerTool
     private float holdTime;
     private float cooldownLeft;
     private float cooldownTotal;
+
+    // The lock a jump puts on the grapple. Separate from the cooldown so the tap swipe is not held back by it.
+    private float jumpLockLeft;
+    private float jumpLockTotal;
+    private TopDownJump jump;
+    private bool jumpSearched;
+    private bool wasAirborne;
 
     // swipe
     private float swipeTimer;
@@ -121,7 +148,12 @@ public class GrappleArmTool : PlayerTool
 
     public override float CooldownFraction
     {
-        get { return cooldownTotal > 0f ? Mathf.Clamp01(cooldownLeft / cooldownTotal) : 0f; }
+        get
+        {
+            float main = cooldownTotal > 0f ? Mathf.Clamp01(cooldownLeft / cooldownTotal) : 0f;
+            float locked = jumpLockTotal > 0f ? Mathf.Clamp01(jumpLockLeft / jumpLockTotal) : 0f;
+            return Mathf.Max(main, locked);
+        }
     }
 
     public override float ChargeFraction
@@ -138,6 +170,45 @@ public class GrappleArmTool : PlayerTool
     public override void TickAlways(float dt)
     {
         if (cooldownLeft > 0f) cooldownLeft = Mathf.Max(0f, cooldownLeft - dt);
+        if (jumpLockLeft > 0f) jumpLockLeft = Mathf.Max(0f, jumpLockLeft - dt);
+        WatchJump();
+    }
+
+    // True while the grapple may not be fired: a jump put it on its lock, or the player is falling down a level.
+    private bool GrappleLocked
+    {
+        get
+        {
+            if (jumpLockLeft > 0f) return true;
+            return s.lockWhileFalling && jump != null && jump.IsFalling;
+        }
+    }
+
+    // Polled every frame (a take-off is the moment IsAirborne turns on), so there is no event to subscribe to or forget.
+    private void WatchJump()
+    {
+        if (!jumpSearched)
+        {
+            jumpSearched = true;
+            jump = owner.GetComponentInParent<TopDownJump>();
+        }
+        if (jump == null) return;
+
+        bool airborne = jump.IsAirborne;
+        if (airborne && !wasAirborne) OnPlayerJumped();
+        wasAirborne = airborne;
+    }
+
+    private void OnPlayerJumped()
+    {
+        if (s.jumpCooldown <= 0f) return;
+
+        jumpLockTotal = s.jumpCooldown;
+        jumpLockLeft = jumpLockTotal;
+
+        // A hook that is still flying is called back, and a pull in progress ends: no grabbing a wall from the air.
+        if (mode == Mode.HookOut) StartRetract();
+        else if (mode == Mode.Pulling) EndPull();
     }
 
     public override void OnUnequipped() { Cancel(); }
@@ -178,10 +249,17 @@ public class GrappleArmTool : PlayerTool
                 if (owner.AttackHeldNow)
                 {
                     holdTime += dt;
+                    // Held past the tap time this would become a grapple, but the grapple is locked: drop the charge (no line is drawn).
+                    // A plain tap still swipes.
+                    if (holdTime > s.tapMaxTime && GrappleLocked) DropCharge();
                 }
                 else if (holdTime < s.tapMaxTime)
                 {
                     StartSwipe();
+                }
+                else if (GrappleLocked)
+                {
+                    DropCharge();
                 }
                 else
                 {
@@ -215,6 +293,13 @@ public class GrappleArmTool : PlayerTool
         mode = Mode.Idle;
         cooldownTotal = Cooldown(cooldownSeconds);
         cooldownLeft = cooldownTotal;
+        HideAll();
+    }
+
+    private void DropCharge()
+    {
+        mode = Mode.Idle;
+        holdTime = 0f;
         HideAll();
     }
 
@@ -360,8 +445,11 @@ public class GrappleArmTool : PlayerTool
             else
             {
                 root = owner.FindInteractable(c, true, out marker);
-                if (root != null) kind = 2;
-                else if (owner.IsWall(c, true)) kind = 3;
+                bool pullTo = IsPullTarget(c);
+
+                // An interactable is reeled in, unless Pull To Everything is on and the player can really be pulled to it.
+                if (root != null && !(s.pullToEverything && pullTo)) kind = 2;
+                else if (pullTo) kind = 3;
                 else continue;
             }
 
@@ -416,6 +504,34 @@ public class GrappleArmTool : PlayerTool
             mode = Mode.Pulling;
             owner.LockMovement(this);   // the walking script is switched off while the arm pulls
         }
+    }
+
+    // Something the player can be pulled to: a wall by the game's own check, a wall by name, or (Pull To Everything) any solid collider.
+    // Triggers (drop zones, lava, switches) never count unless the game's wall check says so.
+    private bool IsPullTarget(Collider2D c)
+    {
+        if (owner.IsWall(c, true)) return true;
+        if (c.isTrigger) return false;
+        return s.pullToEverything || NameIsPullTarget(c);
+    }
+
+    // The collider's object or its parent has one of the Pull Names in its name (a wall tilemap is usually named after what it holds).
+    private bool NameIsPullTarget(Collider2D c)
+    {
+        string[] words = s.pullNames;
+        if (words == null || words.Length == 0) return false;
+
+        Transform t = c.transform;
+        for (int depth = 0; depth < 2 && t != null; depth++, t = t.parent)
+        {
+            string objectName = t.name;
+            for (int i = 0; i < words.Length; i++)
+            {
+                if (string.IsNullOrEmpty(words[i])) continue;
+                if (objectName.IndexOf(words[i], System.StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            }
+        }
+        return false;
     }
 
     private void StartRetract()
