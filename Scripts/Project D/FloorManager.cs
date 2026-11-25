@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Tilemaps;
 using Ilumisoft.HealthSystem;
+using TopDownCharacterController = Cainos.PixelArtTopDown_Basic.TopDownCharacterController;
 
 /// <summary>
 /// The foe side of the floor system. FloorController owns the floor NUMBER (doors, Shop trip, black screen,
@@ -35,8 +36,12 @@ using Ilumisoft.HealthSystem;
 /// Going down also HEALS every player that counts (Heal On Descent, 10% of max health by default).
 ///
 /// HAZARD TILES: it also reads the tile under each player, by player NUMBER, and hurts them:
-///   lava    hurts the players listed in "Lava Hurts" (Player 1, blue, by default); any tile with "lava" in its name
-///   water   hurts the players listed in "Water Hurts" (Player 2, orange, by default); any tile with "water" in its name
+///   lava    does NO damage. It heats the players listed in "Lava Hurts" (Player 1, blue, by default; any tile with "lava" in its name): the longer they
+///           stand in it the redder the robot glows, and when the heat is full it BLOWS UP in a red heat (the player dies). Out of the lava, or in the
+///           air, it cools down again. Invincible players do not heat up.
+///   water   affects the players listed in "Water Hurts" (Player 2, orange, by default; any tile with "water" in its name): it SLOWS them, sparks hop out of
+///           the bottom of the robot, and every damage tick hurts more the longer they have been in it (Water Damage up to Water Damage Max). Leave the
+///           water and the sparks and the extra damage fade away over Water Dry Seconds.
 ///   spikes  hurt EVERY player, massively, but only while the spike tile shows a frame that is not in "Safe Spike Frames"
 ///           (frames 0 and 1 by default, so only spike-trap-16px_strip8_2 to _7 hurt). Spikes are read from "Spike Tilemaps" (empty = every
 ///           Tilemap in the scene), NOT from "Hazard Tilemaps", and at the player's feet as well as the middle of their collider. If the frame number of a spike tile never changes
@@ -47,7 +52,10 @@ using Ilumisoft.HealthSystem;
 ///           (Easy x0.5, Medium x1, Hard x2; PVP always counts as Easy).
 ///
 /// A player who is jumping (CoopHealth.Airborne) is skipped: they fly over lava, water and spikes, and a spike's cooldown isn't used up on a hit
-/// that would do nothing. The moment they land, the tile under them is read again.
+/// that would do nothing. The moment they land, the tile under them is read again. In the air they still cool down and dry off.
+///
+/// The sparks, the red glow and the explosion are drawn by PlayerHazardFx (a separate script). This script adds it to a player the first time
+/// it is needed, so nothing has to be set up; add it to the player prefab yourself to change how it looks.
 ///
 /// HazardTileFx (a separate script on its own object) gives those same lava and water tiles their glow, hopping pieces and walking
 /// sounds. It reads the tile names, the Tilemaps and the foot point from here (see "hooks for HazardTileFx" below), so what glows is
@@ -99,26 +107,38 @@ public class FloorManager : MonoBehaviour
     [SerializeField] private Tilemap[] hazardTilemaps;
     [Tooltip("Where on each player the tile is read, as an offset from the middle of that player's collider (world units). Nudge this until it sits at their feet.")]
     [SerializeField] private Vector2 hazardCheckOffset = Vector2.zero;
-    [Tooltip("Seconds between damage ticks while a player stands in lava or water they are hurt by. The first tick is the moment they step in.")]
+    [Tooltip("Seconds between damage ticks while a player stands in water they are hurt by. The first tick is the moment they step in.")]
     [SerializeField, Min(0.05f)] private float hazardTickSeconds = 0.5f;
     [Tooltip("Prints a Console line every time a hazard hurts a player, with the tile and sprite names, so a wrong hit can be traced.")]
     [SerializeField] private bool logHazards = true;
 
-    [Header("Lava")]
+    [Header("Lava (no damage: heat, then an explosion)")]
     [Tooltip("A tile counts as lava when its name (tile asset OR sprite) contains this. Capitals, spaces, dashes and underscores don't matter, so \"lava\" covers lava-16px_strip12_0 to _11.")]
     [SerializeField] private string lavaName = "lava";
-    [Tooltip("Which players lava hurts. Player 1 (blue) by default. Add 3 or 4 if you want them hurt too.")]
+    [Tooltip("Which players lava heats. Player 1 (blue) by default. Add 3 or 4 if you want them affected too.")]
     [SerializeField] private int[] lavaHurts = { 1 };
-    [Tooltip("Damage per tick.")]
-    [SerializeField, Min(0f)] private float lavaDamage = 5f;
+    [Tooltip("Seconds of standing in lava from cold until the robot blows up (the MEDIUM value: Easy takes twice as long, Hard half as long).")]
+    [SerializeField, Min(0.1f)] private float lavaHeatSeconds = 3f;
+    [Tooltip("Seconds it takes a fully hot robot to cool down completely once it is out of the lava (or in the air). 0 = it cools down at once.")]
+    [SerializeField, Min(0f)] private float lavaCoolSeconds = 4f;
 
-    [Header("Water")]
+    [Header("Water (slow, sparks, damage that grows)")]
     [Tooltip("A tile counts as water when its name (tile asset OR sprite) contains this, so \"water\" covers water-16px_strip8_0 to _7.")]
     [SerializeField] private string waterName = "water";
-    [Tooltip("Which players water hurts. Player 2 (orange) by default. Add 3 or 4 if you want them hurt too.")]
+    [Tooltip("Which players water affects. Player 2 (orange) by default. Add 3 or 4 if you want them affected too.")]
     [SerializeField] private int[] waterHurts = { 2 };
-    [Tooltip("Damage per tick.")]
+    [Tooltip("Damage per tick the moment a player steps into the water. It grows towards Water Damage Max the longer they stay in.")]
     [SerializeField, Min(0f)] private float waterDamage = 5f;
+    [Tooltip("Damage per tick after the player has been in the water for the whole Water Ramp Seconds.")]
+    [SerializeField, Min(0f)] private float waterDamageMax = 20f;
+    [Tooltip("Seconds in the water until the damage reaches Water Damage Max (and the sparks reach their most).")]
+    [SerializeField, Min(0.1f)] private float waterRampSeconds = 8f;
+    [Tooltip("Seconds it takes to dry off completely after leaving the water: the sparks and the extra damage fade over this time. 0 = at once.")]
+    [SerializeField, Min(0f)] private float waterDrySeconds = 3f;
+    [Tooltip("How fast the player walks in water, as a fraction of normal speed. 0.5 = half speed, 1 = not slowed.")]
+    [SerializeField, Range(0.05f, 1f)] private float waterSlowFactor = 0.5f;
+    [Tooltip("Sparks hop out of the bottom of the robot while it is in the water.")]
+    [SerializeField] private bool waterSparks = true;
 
     [Header("Spikes (hurt every player)")]
     [Tooltip("A tile counts as a spike trap when its name contains this.")]
@@ -161,13 +181,23 @@ public class FloorManager : MonoBehaviour
     private int handledFloor;   // the floor the spawner was last started for (0 = none yet), so one floor never starts twice
 
     private const int MaxPlayers = 4;
-    private readonly float[] nextTickTime = new float[MaxPlayers + 1];    // per player number: when lava / water may hurt them next
+    private readonly float[] nextTickTime = new float[MaxPlayers + 1];    // per player number: when water may hurt them next
     private readonly float[] nextSpikeTime = new float[MaxPlayers + 1];   // per player number: when a spike may hurt them next
     private readonly Collider2D[] playerColliders = new Collider2D[MaxPlayers + 1];
     private readonly CoopHealth[] playerColliderOwners = new CoopHealth[MaxPlayers + 1];
     private Tilemap[] autoHazardMaps;
     private float nextHazardMapRefresh;
     private readonly float[] nextSpikeLogTime = new float[MaxPlayers + 1];   // per player number: when the next spike Console line may print
+
+    // Lava heat and water wetness, per player number, both 0..1.
+    private const float SlowRefreshSeconds = 0.2f;   // each frame in water asks for a slow this long, so it ends a moment after the player leaves
+    private readonly float[] heat = new float[MaxPlayers + 1];   // 0 = cool, 1 = blows up
+    private readonly float[] wet = new float[MaxPlayers + 1];    // 0 = dry, 1 = in the water for the whole ramp
+    private readonly PlayerHazardFx[] fxs = new PlayerHazardFx[MaxPlayers + 1];
+    private readonly CoopHealth[] fxOwners = new CoopHealth[MaxPlayers + 1];
+    private readonly TopDownCharacterController[] controllers = new TopDownCharacterController[MaxPlayers + 1];
+    private readonly CoopHealth[] controllerOwners = new CoopHealth[MaxPlayers + 1];
+    private bool hazardStateDirty;   // some heat / wetness may be showing, so switching the hazards off has something to clear
 
     // One watched spike tile per Tilemap: is the frame number we read from it really changing?
     private sealed class SpikeProbe
@@ -245,6 +275,7 @@ public class FloorManager : MonoBehaviour
 
         invalidSince.Clear();
         spikeProbes.Clear();   // the new floor may have other spike tiles: watch them afresh
+        ResetHazardState();    // nobody arrives hot or wet
 
         // Healing only on a real step down. The first call of a scene (a fresh start, or back from the Shop) has no
         // previous floor, so it never heals.
@@ -293,6 +324,7 @@ public class FloorManager : MonoBehaviour
     public void RestartFloor()
     {
         invalidSince.Clear();
+        ResetHazardState();
         OnFloorRestarted?.Invoke();
         if (spawner != null) spawner.StartLevel(CurrentFloor - 1);
     }
@@ -361,63 +393,193 @@ public class FloorManager : MonoBehaviour
 
     // ------------------------------------------------------------ hazard tiles (lava, water, spikes)
 
-    // Reads the tile under each player and hurts them by player number:
-    //   lava / water   only the players in Lava Hurts / Water Hurts, once per Hazard Tick Seconds
-    //   spikes         every player, once per Spike Cooldown, only while the spike shows a frame not in Safe Spike Frames
+    // Reads the tile under each player, by player number:
+    //   lava    heats the players in Lava Hurts (no damage); a full heat blows them up
+    //   water   slows the players in Water Hurts, makes sparks, and hurts once per Hazard Tick Seconds, more the longer they are in it
+    //   spikes  hurt every player, once per Spike Cooldown, only while the spike shows a frame not in Safe Spike Frames
     private void CheckHazards()
     {
         if (FloorController.BlocksInput || MenuController.IsOpen) return;   // nobody is hurt behind a menu or a black screen
 
+        hazardStateDirty = true;
+        float dt = Time.deltaTime;
+
         for (int n = 1; n <= MaxPlayers; n++)
         {
             CoopHealth p = CoopHealth.Get(n);
-            if (p == null || !p.IsAlive || !CoopRules.Counts(n)) continue;
-            if (p.Airborne) continue;   // jumping: nothing to read, nothing to hurt
-
-            bool onLava;
-            bool onWater;
-            string detail;
-            Vector2 point = HazardPoint(n, p);
-            ReadHazardTiles(point, out onLava, out onWater, out detail);
-
-            // Spikes are read at the hazard point AND at the player's own position (their feet): the middle of the collider can sit one
-            // tile above the spike they are standing on.
-            string spikeNote;
-            string spikeDetail;
-            bool onSpike = ReadSpikes(point, out spikeNote, out spikeDetail);
-            if (!onSpike)
+            if (p == null || !p.IsAlive || !CoopRules.Counts(n))
             {
-                string footNote;
-                string footDetail;
-                onSpike = ReadSpikes((Vector2)p.transform.position, out footNote, out footDetail);
-                if (footNote != null) spikeNote = footNote;
-                if (onSpike) spikeDetail = footDetail;
+                ClearHazardState(n);   // a dead player is neither hot nor wet
+                continue;
             }
 
-            if (spikeNote != null && logSpikeReads && Time.time >= nextSpikeLogTime[n])
+            // A jumping player flies over everything: nothing is read, nothing hurts, and a spike's cooldown isn't used up. They still cool down
+            // and dry off though, so the heat and the water below are updated for them too.
+            bool grounded = !p.Airborne;
+
+            bool onLava = false;
+            bool onWater = false;
+            string detail = "";
+
+            if (grounded)
             {
-                nextSpikeLogTime[n] = Time.time + 1f;
-                Debug.Log("FloorManager: Player " + n + " stands on a spike tile: " + spikeNote + ".", p);
+                Vector2 point = HazardPoint(n, p);
+                ReadHazardTiles(point, out onLava, out onWater, out detail);
+
+                // Spikes are read at the hazard point AND at the player's own position (their feet): the middle of the collider can sit one
+                // tile above the spike they are standing on.
+                string spikeNote;
+                string spikeDetail;
+                bool onSpike = ReadSpikes(point, out spikeNote, out spikeDetail);
+                if (!onSpike)
+                {
+                    string footNote;
+                    string footDetail;
+                    onSpike = ReadSpikes((Vector2)p.transform.position, out footNote, out footDetail);
+                    if (footNote != null) spikeNote = footNote;
+                    if (onSpike) spikeDetail = footDetail;
+                }
+
+                if (spikeNote != null && logSpikeReads && Time.time >= nextSpikeLogTime[n])
+                {
+                    nextSpikeLogTime[n] = Time.time + 1f;
+                    Debug.Log("FloorManager: Player " + n + " stands on a spike tile: " + spikeNote + ".", p);
+                }
+
+                if (onSpike && Time.time >= nextSpikeTime[n])
+                {
+                    nextSpikeTime[n] = Time.time + spikeCooldown;
+                    HurtByHazard(p, spikeDamage, "spikes", spikeDetail);
+                }
             }
 
-            if (onSpike && Time.time >= nextSpikeTime[n])
-            {
-                nextSpikeTime[n] = Time.time + spikeCooldown;
-                HurtByHazard(p, spikeDamage, "spikes", spikeDetail);
-                if (!p.IsAlive) continue;
-            }
+            if (!p.IsAlive) continue;   // the spikes killed them
 
-            string source = null;
-            float amount = 0f;
-            if (onLava && Listed(lavaHurts, n)) { source = "lava"; amount = lavaDamage; }
-            else if (onWater && Listed(waterHurts, n)) { source = "water"; amount = waterDamage; }
+            // An invincible player (power-up) or one in the safe moment after a revive does not heat up, the same way they took no lava damage before.
+            bool heating = grounded && onLava && Listed(lavaHurts, n) && !p.Invincible && !p.Grace;
+            UpdateHeat(n, p, heating, dt, detail);
+            if (!p.IsAlive) continue;   // it blew up
 
-            if (source != null && Time.time >= nextTickTime[n])
-            {
-                nextTickTime[n] = Time.time + hazardTickSeconds;
-                HurtByHazard(p, amount, source, detail);
-            }
+            bool soaking = grounded && onWater && Listed(waterHurts, n);
+            UpdateWater(n, p, soaking, dt, detail);
         }
+    }
+
+    // ------------------------------------------------------------ lava: heat
+
+    // Heat goes 0 -> 1 while the player stands in lava and back down when they do not. At 1 the robot blows up.
+    private void UpdateHeat(int n, CoopHealth p, bool heating, float dt, string detail)
+    {
+        if (heating)
+        {
+            float scale = Mathf.Max(0.01f, DifficultyRules.TrapDamageScale);   // Easy 0.5x (twice as long), Medium 1x, Hard 2x (half as long)
+            heat[n] += dt * scale / Mathf.Max(0.1f, lavaHeatSeconds);
+        }
+        else if (heat[n] > 0f)
+        {
+            heat[n] -= lavaCoolSeconds > 0f ? dt / lavaCoolSeconds : 1f;
+        }
+        heat[n] = Mathf.Clamp01(heat[n]);
+
+        PlayerHazardFx fx = FxOf(n, p, heat[n] > 0f);
+        if (fx != null) fx.SetHeat(heat[n]);
+
+        if (heat[n] < 1f) return;
+
+        // Full heat: it blows up in a red heat.
+        heat[n] = 0f;
+        if (logHazards) Debug.Log("FloorManager: Player " + n + " blew up in the lava (" + detail + ").", p);
+
+        if (fx != null) fx.Explode();
+        p.ForceKill();      // not a hit: Invincible, Grace and Shared Damage do not come into it
+        KillTheOthers(p);   // Hard difficulty: a death takes the other players with it, like any other death
+    }
+
+    // Hard difficulty (DifficultyRules.LinkedDeath): when one player dies, every other player that counts dies with them. Blowing up is a death, so it
+    // follows that rule too (CoopHealth skips it for ForceKill, which is meant for pit falls).
+    private static void KillTheOthers(CoopHealth dead)
+    {
+        if (!DifficultyRules.LinkedDeath) return;
+
+        CoopHealth[] all = CoopHealth.Players.ToArray();
+        for (int i = 0; i < all.Length; i++)
+        {
+            CoopHealth other = all[i];
+            if (other != null && other != dead && other.IsAlive && CoopRules.Counts(other.PlayerNumber)) other.ForceKill();
+        }
+    }
+
+    // ------------------------------------------------------------ water: slow, sparks, damage that grows
+
+    // Wetness goes 0 -> 1 over Water Ramp Seconds in the water, and back down over Water Dry Seconds out of it. It drives the damage and the sparks.
+    private void UpdateWater(int n, CoopHealth p, bool soaking, float dt, string detail)
+    {
+        if (soaking)
+        {
+            wet[n] += dt / Mathf.Max(0.1f, waterRampSeconds);
+
+            // Slow: the controller keeps the strongest slow and the longest time, so asking every frame holds it for as long as they are in the water.
+            TopDownCharacterController walker = ControllerOf(n, p);
+            if (walker != null && waterSlowFactor < 1f) walker.ApplySlow(waterSlowFactor, SlowRefreshSeconds);
+        }
+        else if (wet[n] > 0f)
+        {
+            wet[n] -= waterDrySeconds > 0f ? dt / waterDrySeconds : 1f;
+        }
+        wet[n] = Mathf.Clamp01(wet[n]);
+
+        // The first tick is the moment they step in, at the starting damage.
+        if (soaking && Time.time >= nextTickTime[n])
+        {
+            nextTickTime[n] = Time.time + hazardTickSeconds;
+            HurtByHazard(p, Mathf.Lerp(waterDamage, waterDamageMax, wet[n]), "water", detail);
+        }
+
+        PlayerHazardFx fx = FxOf(n, p, waterSparks && wet[n] > 0f);
+        if (fx != null) fx.SetSparks(waterSparks ? wet[n] : 0f);
+    }
+
+    // ------------------------------------------------------------ helpers for heat and water
+
+    // The PlayerHazardFx on this player. One that is already on the prefab is used; otherwise one is added the first time it is needed.
+    private PlayerHazardFx FxOf(int n, CoopHealth p, bool create)
+    {
+        if (fxOwners[n] != p)
+        {
+            fxOwners[n] = p;
+            fxs[n] = p != null ? p.GetComponent<PlayerHazardFx>() : null;
+        }
+
+        if (fxs[n] == null && create && p != null) fxs[n] = p.gameObject.AddComponent<PlayerHazardFx>();
+        return fxs[n];
+    }
+
+    private TopDownCharacterController ControllerOf(int n, CoopHealth p)
+    {
+        if (controllerOwners[n] != p)
+        {
+            controllerOwners[n] = p;
+            TopDownCharacterController c = p.GetComponent<TopDownCharacterController>();
+            if (c == null) c = p.GetComponentInParent<TopDownCharacterController>();
+            if (c == null) c = p.GetComponentInChildren<TopDownCharacterController>();
+            controllers[n] = c;
+        }
+        return controllers[n];
+    }
+
+    // Cool and dry one player at once (they died).
+    private void ClearHazardState(int n)
+    {
+        heat[n] = 0f;
+        wet[n] = 0f;
+        if (fxs[n] != null) fxs[n].Clear();
+    }
+
+    // Cool and dry everybody at once (a new floor, a restart, hazards switched off).
+    private void ResetHazardState()
+    {
+        for (int n = 1; n <= MaxPlayers; n++) ClearHazardState(n);
+        hazardStateDirty = false;
     }
 
     private void HurtByHazard(CoopHealth player, float amount, string source, string detail)
@@ -772,6 +934,10 @@ public class FloorManager : MonoBehaviour
         {
             UpdateSpikeProbes();
             CheckHazards();
+        }
+        else if (hazardStateDirty)
+        {
+            ResetHazardState();   // switched off while somebody was hot or wet: the sparks and the red must not stay
         }
 
         if (!removeStrayFoes || Time.time < nextCheckTime) return;
