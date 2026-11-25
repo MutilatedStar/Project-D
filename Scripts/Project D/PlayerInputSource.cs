@@ -173,6 +173,9 @@ public class KeyBindings
 ///   Inventory               Tab                  Enter
 ///   Jump                    Z                    ; (semicolon)
 ///   Pick sword 1-9          number keys (Player 1 only)
+///   COMMON PC KEYS (Add Common Pc Keys, ON by default): Player 1 ALSO answers to Space or K = jump, J or X = attack, C or L = interact
+///   (pick up / swap), and the arrow keys = move while no second player is really in the game. They are added in code on top of whatever
+///   the hub has saved, so an old saved key list can't hide them. A key already used by another action is never added.
 ///   Pause is global, not per player: PauseManager (Esc / P, and Start on any controller).
 ///   Players 3 and 4 have no keys until you add some; they are made for controllers.
 ///   Player 2 OFF (LocalCoop.Enabled = false): Player 1 also answers to "Solo Extra Keys" (by default Player 2's half
@@ -228,6 +231,9 @@ public class PlayerInputSource : MonoBehaviour
     public KeyBindings[] keysByPlayer = new KeyBindings[MaxPlayers];
     [Tooltip("Extra keys Player 1 ALSO answers to while Player 2 is switched off (by default Player 2's half of the keyboard, and I for the inventory). Only Player 1 uses these.")]
     public KeyBindings soloExtraKeys = new KeyBindings();
+    [Tooltip("ON: Player 1 also answers to the common PC keys: Space or K = jump, J or X = attack, C or L = interact, and the arrow keys = move " +
+             "while no second player is in the game. They are added on top of the keys saved in the hub. Only Player 1 uses these.")]
+    public bool addCommonPcKeys = true;
 
     [Header("Controller buttons (by position)")]
     public PadButton sprintButton = PadButton.LeftStick;
@@ -246,13 +252,19 @@ public class PlayerInputSource : MonoBehaviour
     public bool Locked { get; set; }
 
     /// <summary>True for Player 1 while Player 2 is switched off: Player 1 owns the whole keyboard.</summary>
-    public bool SoloKeyboard { get { return playerNumber == 1 && !TwoPlayers; } }
+    public bool SoloKeyboard { get { return playerNumber == 1 && !SecondPlayerInGame; } }
 
     /// <summary>
     /// True when more than one player is really in the game (two active PlayerInputSources) or the LocalCoop switch is on. It decides
     /// whether Player 1 owns the whole keyboard and whether players 2-4 answer, so a Player 2 that exists always works.
     /// </summary>
     public static bool TwoPlayers { get { return LocalCoop.Enabled || Instances.Count > 1; } }
+
+    /// <summary>
+    /// True only while a second PlayerInputSource is really switched on. Unlike TwoPlayers it ignores the LocalCoop switch, so with Player 2
+    /// removed from the scene Player 1 owns the whole keyboard (the arrow keys too) even if LocalCoop is still ticked.
+    /// </summary>
+    public static bool SecondPlayerInGame { get { return Instances.Count > 1; } }
 
     /// <summary>Raised when this player's devices or keys change (the UI listens to it).</summary>
     public event Action Changed;
@@ -556,7 +568,10 @@ public class PlayerInputSource : MonoBehaviour
     {
         EnsureBindings();
         KeyCode[] own = keysByPlayer[Mathf.Clamp(player, 1, MaxPlayers) - 1].Get(action) ?? new KeyCode[0];
-        if (player != 1 || TwoPlayers) return own;
+        if (player != 1) return own;
+
+        if (addCommonPcKeys) own = Merge(own, CommonKeysFor(action, !SecondPlayerInGame));
+        if (SecondPlayerInGame) return own;
 
         KeyCode[] extra = soloExtraKeys.Get(action);
         if (extra == null || extra.Length == 0) return own;
@@ -629,6 +644,7 @@ public class PlayerInputSource : MonoBehaviour
         _started = true;
         CheckForClashes();
         LogKeysInUse();
+        LogInputState();
         if (playerNumber > 1) StartCoroutine(WarnIfCoopOff());
     }
 
@@ -768,6 +784,70 @@ public class PlayerInputSource : MonoBehaviour
         if (soloExtraKeys == null) soloExtraKeys = KeyBindings.CreateSoloExtras();
     }
 
+    // ------------------------------------------------------------------ diagnostics: "I press a key and the player does not move"
+
+    private bool _ignoredReported;
+
+    private static string KeyList(KeyCode[] keys)
+    {
+        if (keys == null || keys.Length == 0) return "NONE";
+        return string.Join("/", Array.ConvertAll(keys, k => k.ToString()));
+    }
+
+    // Every reason this player can ignore the keyboard, in words. Empty when nothing is wrong.
+    private string WhyKeyboardIgnored()
+    {
+        System.Text.StringBuilder why = new System.Text.StringBuilder();
+        if (!useKeyboard)
+            why.Append(" The Keyboard switch is OFF for this player (PlayerInputHub > Players > Use Keyboard, or the Keyboard toggle in the controls list).");
+        if (Locked)
+            why.Append(" Locked is ON: a menu, inventory or cutscene script locked this player and never unlocked it.");
+        if (playerNumber != 1 && !TwoPlayers)
+            why.Append(" This character is Player " + playerNumber + ", and Player 2 and up only answer once a second player is in the game. " +
+                       "If this is your only player, it was given the wrong slot: drag it into Element 0 of the PlayerInputHub's Players list.");
+        if (Typing)
+            why.Append(" A UI input field has focus (the EventSystem's selected object), so every key counts as typing. Click the game view or clear the selection.");
+        return why.ToString();
+    }
+
+    // One line per player at the start: who this is and the movement keys it really uses.
+    private void LogInputState()
+    {
+        KeyCode[][] t = Table;
+        Debug.Log("PlayerInputSource: '" + name + "' is Player " + playerNumber + " | hub=" + (Hub != null) +
+                  " keyboard=" + useKeyboard + " locked=" + Locked + " twoPlayers=" + TwoPlayers + " active=" + Active +
+                  " | Move keys: Left=" + KeyList(t[(int)PlayerAction.Left]) + " Right=" + KeyList(t[(int)PlayerAction.Right]) +
+                  " Up=" + KeyList(t[(int)PlayerAction.Up]) + " Down=" + KeyList(t[(int)PlayerAction.Down]), this);
+
+        string why = WhyKeyboardIgnored();
+        if (why.Length > 0)
+            Debug.LogWarning("PlayerInputSource: '" + name + "' (Player " + playerNumber + ") will ignore the keyboard right now:" + why, this);
+
+        if (t[(int)PlayerAction.Left].Length == 0 || t[(int)PlayerAction.Right].Length == 0 ||
+            t[(int)PlayerAction.Up].Length == 0 || t[(int)PlayerAction.Down].Length == 0)
+        {
+            Debug.LogWarning("PlayerInputSource: Player " + playerNumber + " has NO key for at least one movement direction, so it cannot " +
+                             "walk that way from the keyboard. Fix the keys in the PlayerInputHub slot, or use the hub's context menu " +
+                             "\"Reset ALL Players To Defaults\".", this);
+        }
+    }
+
+    // Reported once: a movement key is physically held, but a gate says to ignore it, so the reason is named.
+    private void Update()
+    {
+        if (_ignoredReported) return;
+        if (useKeyboard && Active && !Typing) return;   // the keyboard is being read normally
+
+        KeyCode[][] t = Table;
+        bool held = KeysHeld(t[(int)PlayerAction.Left]) || KeysHeld(t[(int)PlayerAction.Right]) ||
+                    KeysHeld(t[(int)PlayerAction.Up]) || KeysHeld(t[(int)PlayerAction.Down]);
+        if (!held) return;
+
+        _ignoredReported = true;
+        Debug.LogWarning("PlayerInputSource: a movement key is held on '" + name + "' (Player " + playerNumber + ") but it is being IGNORED:" +
+                         WhyKeyboardIgnored(), this);
+    }
+
     // ------------------------------------------------------------------ gating
 
     // Player 2 (and up) answer once a second player is really in the game (see TwoPlayers).
@@ -795,7 +875,7 @@ public class PlayerInputSource : MonoBehaviour
         get
         {
             if (_tablesDirty || _tableCoop == null || _tablesFor != playerNumber) RebuildTables();
-            return TwoPlayers ? _tableCoop : _tableSolo;
+            return SecondPlayerInGame ? _tableCoop : _tableSolo;
         }
     }
 
@@ -808,7 +888,66 @@ public class PlayerInputSource : MonoBehaviour
         _tableSolo = playerNumber == 1 ? Merge(_tableCoop, ToTable(soloExtraKeys)) : _tableCoop;
         DropMoveKeysFromJump(_tableCoop, true);
         if (_tableSolo != _tableCoop) DropMoveKeysFromJump(_tableSolo, false);
+
+        // The common PC keys go in AFTER the clean-up above, so an old saved list can never knock them out again.
+        if (addCommonPcKeys && playerNumber == 1)
+        {
+            AddCommonKeys(_tableCoop, false);
+            if (_tableSolo != _tableCoop) AddCommonKeys(_tableSolo, true);
+        }
         _tablesDirty = false;
+    }
+
+    // The common PC keys for Player 1. solo = true adds the arrow keys (only while nobody else is in the game, since they are Player 2's).
+    private static KeyCode[] CommonKeysFor(PlayerAction action, bool solo)
+    {
+        switch (action)
+        {
+            case PlayerAction.Jump: return new[] { KeyCode.Space, KeyCode.K };
+            case PlayerAction.Attack: return new[] { KeyCode.J, KeyCode.X };
+            case PlayerAction.Interact: return new[] { KeyCode.C, KeyCode.L };
+            case PlayerAction.Left: return solo ? new[] { KeyCode.LeftArrow } : new KeyCode[0];
+            case PlayerAction.Right: return solo ? new[] { KeyCode.RightArrow } : new KeyCode[0];
+            case PlayerAction.Up: return solo ? new[] { KeyCode.UpArrow } : new KeyCode[0];
+            case PlayerAction.Down: return solo ? new[] { KeyCode.DownArrow } : new KeyCode[0];
+            default: return new KeyCode[0];
+        }
+    }
+
+    /// <summary>The common PC keys Player 1 answers to for this action right now (empty when switched off). For the controls list.</summary>
+    internal static KeyCode[] CommonKeysForPlayer1(PlayerAction action)
+    {
+        PlayerInputSource first = Get(1);
+        if (first != null && !first.addCommonPcKeys) return new KeyCode[0];
+        return CommonKeysFor(action, !SecondPlayerInGame);
+    }
+
+    private static void AddCommonKeys(KeyCode[][] table, bool solo)
+    {
+        for (int a = 0; a < ActionCount; a++)
+        {
+            KeyCode[] extra = CommonKeysFor((PlayerAction)a, solo);
+            if (extra.Length == 0) continue;
+
+            List<KeyCode> list = new List<KeyCode>(table[a]);
+            for (int i = 0; i < extra.Length; i++)
+            {
+                if (list.Contains(extra[i])) continue;
+                if (KeyUsedByAnotherAction(table, extra[i], a)) continue;   // one key never does two things
+                list.Add(extra[i]);
+            }
+            table[a] = list.ToArray();
+        }
+    }
+
+    private static bool KeyUsedByAnotherAction(KeyCode[][] table, KeyCode key, int except)
+    {
+        for (int a = 0; a < ActionCount; a++)
+        {
+            if (a == except) continue;
+            if (Array.IndexOf(table[a], key) >= 0) return true;
+        }
+        return false;
     }
 
     // TopDown only: Jump must never share a key with another action of the same player. A Jump list that contains a Move key is an old

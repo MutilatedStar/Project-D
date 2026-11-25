@@ -224,7 +224,10 @@ public class PlayerInputHub : MonoBehaviour
     public KeyCode[] KeysFor(int playerNumber, PlayerAction action)
     {
         KeyCode[] own = Slot(playerNumber).keys.Get(action) ?? new KeyCode[0];
-        if (playerNumber != 1 || PlayerInputSource.TwoPlayers) return own;
+        if (playerNumber != 1) return own;
+
+        own = PlayerInputSource.Merge(own, PlayerInputSource.CommonKeysForPlayer1(action));
+        if (PlayerInputSource.SecondPlayerInGame) return own;
 
         KeyCode[] extra = soloExtraKeys.Get(action);
         if (extra == null || extra.Length == 0) return own;

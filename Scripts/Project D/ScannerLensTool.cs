@@ -40,10 +40,10 @@ public class ScannerLensTool : PlayerTool
         [Min(0.5f)] public float panSpeed = 9f;
         [Tooltip("The camera can't go further than this from where it started, in Unity units.")]
         [Min(1f)] public float maxPanDistance = 16f;
-        [Tooltip("Keys that move the camera for Player 1, in this order: Up, Down, Left, Right.")]
-        public KeyCode[] player1PanKeys = { KeyCode.W, KeyCode.S, KeyCode.A, KeyCode.D };
-        [Tooltip("Keys that move the camera for Player 2, in this order: Up, Down, Left, Right.")]
-        public KeyCode[] player2PanKeys = { KeyCode.UpArrow, KeyCode.DownArrow, KeyCode.LeftArrow, KeyCode.RightArrow };
+        // The camera now moves with the player's own move keys (WASD and the arrow keys) and the controller stick, read through PlayerInputSource.
+        // These two lists are not used any more; they stay only so scenes that saved them keep loading.
+        [HideInInspector] public KeyCode[] player1PanKeys = { KeyCode.W, KeyCode.S, KeyCode.A, KeyCode.D };
+        [HideInInspector] public KeyCode[] player2PanKeys = { KeyCode.UpArrow, KeyCode.DownArrow, KeyCode.LeftArrow, KeyCode.RightArrow };
         [Tooltip("ON: the freeze also sets Time.timeScale to 0, so even things that never check the game's pause switch stop (physics, animations, particles). Leave it ON.")]
         public bool alsoStopTimeScale = true;
 
@@ -87,7 +87,6 @@ public class ScannerLensTool : PlayerTool
     private Camera cam;
     private float camTimer;
     private bool panApplied;
-    private bool panKeysBroken;
 
     private Material grayMat;
     private Material trapMat;
@@ -273,32 +272,14 @@ public class ScannerLensTool : PlayerTool
         cooldownLeft = cooldownTotal;
     }
 
+    // The same move keys, arrow keys and stick that walk the player, so the camera follows whatever the player steers with.
     private Vector2 ReadPanInput()
     {
-        if (panKeysBroken) return Vector2.zero;
+        PlayerInputSource input = PlayerInputSource.Get(owner.PlayerNo);
+        if (input == null) return Vector2.zero;
 
-        KeyCode[] keys = owner.PlayerNo == 2 ? s.player2PanKeys : s.player1PanKeys;
-        if (keys == null || keys.Length < 4) return Vector2.zero;
-
-        try
-        {
-            float x = 0f;
-            float y = 0f;
-            if (Input.GetKey(keys[0])) y += 1f;
-            if (Input.GetKey(keys[1])) y -= 1f;
-            if (Input.GetKey(keys[2])) x -= 1f;
-            if (Input.GetKey(keys[3])) x += 1f;
-
-            Vector2 v = new Vector2(x, y);
-            return v.sqrMagnitude > 1f ? v.normalized : v;
-        }
-        catch (System.InvalidOperationException)
-        {
-            // The project only uses the new Input System, so UnityEngine.Input can't be read.
-            panKeysBroken = true;
-            Debug.LogWarning("Scanner Lens: the pan keys use the old Input Manager, which this project has switched off. Tell Claude and the pan keys will be changed.");
-            return Vector2.zero;
-        }
+        Vector2 v = input.Move;
+        return v.sqrMagnitude > 1f ? v.normalized : v;
     }
 
     // ------------------------------------------------------------ camera
@@ -637,11 +618,19 @@ public class ScannerLensTool : PlayerTool
 
         Rect view = cam.pixelRect;
         float scale = canvas.scaleFactor > 0f ? canvas.scaleFactor : 1f;
-        float unit = Mathf.Max(20f, Screen.height * 0.035f);
+        // Everything is sized from THIS player's view (not a fixed pixel size), so it can never be bigger than the picture it sits on.
+        float unit = Mathf.Clamp(Mathf.Min(view.height, view.width * 0.6f) * 0.045f, 14f, 48f);
 
+        // The banner: one box at the top of the view, never wider than the view, and the text shrinks to fit it.
+        float bannerHeight = unit * 1.4f;
+        float bannerWidth = Mathf.Max(60f, view.width * 0.9f);
         RectTransform labelRect = label.rectTransform;
-        labelRect.anchoredPosition = new Vector2(view.center.x, view.yMax - unit * 1.5f) / scale;
-        label.text = frozen ? "SCANNING   move keys: look around   release: resume" : "SCANNER LENS";
+        labelRect.sizeDelta = new Vector2(bannerWidth, bannerHeight) / scale;
+        labelRect.anchoredPosition = new Vector2(view.center.x, view.yMax - bannerHeight) / scale;
+        label.enableAutoSizing = true;
+        label.fontSizeMin = 6f;
+        label.fontSizeMax = Mathf.Max(8f, unit * 0.55f / scale);
+        label.text = frozen ? "SCANNING - move: look around - release: resume" : "SCANNER LENS";
 
         float edge = unit * 1.3f;
         Vector2 center = view.center;

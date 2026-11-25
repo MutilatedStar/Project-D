@@ -19,7 +19,7 @@ namespace Cainos.PixelArtTopDown_Basic
     /// and that script is asked to do its thing. Add it to the player prefab next to TopDownCharacterController, which hands over the
     /// input each frame (so the player cannot pick anything up while the controller is switched off by a pause, a menu or a floor change).
     ///
-    /// KEYS    Player 1 uses Space and Player 2 uses Right Ctrl by default ("Keys By Player": element 0 = Player 1, element 1 = Player 2...).
+    /// KEYS    Player 1 uses Left Ctrl and Player 2 uses Right Ctrl by default (Space is the JUMP key now: a key that is also this player's Jump key never picks up) ("Keys By Player": element 0 = Player 1, element 1 = Player 2...).
     ///         Any other key works the same: type it into that player's list. "Use Interact Button" also lets the normal Interact action
     ///         pick up (E, / and the controller's East button by default): that is the only way a controller player can pick up, because the
     ///         extra keys are keyboard keys. Interact is also the Swap / revive button, so a downed partner and an object at the same
@@ -43,7 +43,7 @@ namespace Cainos.PixelArtTopDown_Basic
                  "the PlayerInputHub gave it. Type any key you like. Player 3 and 4 have no key until you add one (they can still use Interact).")]
         [SerializeField] private PickUpKeys[] keysByPlayer =
         {
-            new PickUpKeys { keys = new[] { KeyCode.Space } },
+            new PickUpKeys { keys = new[] { KeyCode.LeftControl } },
             new PickUpKeys { keys = new[] { KeyCode.RightControl } },
             new PickUpKeys(),
             new PickUpKeys()
@@ -125,7 +125,7 @@ namespace Cainos.PixelArtTopDown_Basic
             for (int a = 0; a < PlayerInputSource.ActionCount; a++)
             {
                 PlayerAction action = (PlayerAction)a;
-                if (action == PlayerAction.Interact) continue;
+                if (action == PlayerAction.Interact || action == PlayerAction.Jump) continue;   // a Jump key is skipped by KeyPressed below
 
                 KeyCode[] other = source.KeysFor(action);
                 for (int k = 0; k < mine.Length; k++)
@@ -169,8 +169,11 @@ namespace Cainos.PixelArtTopDown_Basic
             if (source.playerNumber > 1 && !PlayerInputSource.TwoPlayers) return false;
 
             KeyCode[] keys = OwnKeys(source);
+            KeyCode[] jumpKeys = source.KeysFor(PlayerAction.Jump);
             for (int i = 0; i < keys.Length; i++)
             {
+                // Space used to be Player 1's pick-up key and may still be saved on the prefab. A key that jumps never also picks up.
+                if (Array.IndexOf(jumpKeys, keys[i]) >= 0) continue;
                 if (KeyInput.WasPressed(keys[i])) return true;
             }
             return false;
