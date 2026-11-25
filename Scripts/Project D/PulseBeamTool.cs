@@ -4,14 +4,22 @@ using UnityEngine;
 /// <summary>
 /// PULSE BEAM (built by SwordController; nothing to add by hand).
 ///
-///   Hold the attack button and a beam shoots the way the player faces. The longer it is held the BIGGER it gets (longer and wider)
-///   and the MORE damage per second it does. It hurts every foe inside it, and stops at walls.
-///   If the first thing the beam touches is an interactable object (a ToolInteractable, or anything on the Interactable Mask layers) it
-///   latches on and PICKS IT UP instead. While it holds the object:
+///   A laser with two strengths. Neither one ever grows: each has its own fixed size.
+///
+///     TAP the attack button   a short, thin, weak zap. One quick hit, and you can fire it again fast.
+///     HOLD the attack button  once the button has been down for Hold Threshold seconds, the zap becomes the STRONG beam:
+///                             longer, wider, and it keeps burning every foe inside it for as long as you hold.
+///
+///   Both beams hurt every foe inside them and stop at walls.
+///
+///   The strong beam can also pick things up. If the first thing it touches is an interactable object (a ToolInteractable,
+///   or anything on the Interactable Mask layers) it latches on and PICKS IT UP instead. While it holds the object:
 ///       Next weapon key  pushes the object further away from the player
 ///       Previous weapon key  pulls it closer
 ///   Let go of the attack button to drop it where it is. (Turning round carries it round with you.)
-/// The beam shuts off by itself after Max Hold Time, then needs its Cooldown.
+///   (The weak tap beam never picks anything up, so tapping can't nudge crates around by accident.)
+///
+/// The strong beam shuts off by itself after Max Hold Time. Each beam then needs its own cooldown before the next shot.
 /// </summary>
 public class PulseBeamTool : PlayerTool
 {
@@ -25,26 +33,34 @@ public class PulseBeamTool : PlayerTool
             color = new Color(0.85f, 0.5f, 1f);
         }
 
-        [Header("Beam")]
-        [Tooltip("Seconds of holding until the beam is at full size and full damage.")]
-        [Min(0.1f)] public float chargeTime = 2.2f;
-        [Tooltip("The beam shuts off after being held this long.")]
+        [Header("Tap / Hold")]
+        [Tooltip("Hold the attack button this many seconds and the weak tap beam turns into the strong beam. Let go sooner and it stays a tap.")]
+        [Min(0.05f)] public float holdThreshold = 0.3f;
+        [Tooltip("The shortest the weak beam stays on screen, so even a very quick tap shows as a flash.")]
+        [Min(0.02f)] public float tapMinTime = 0.12f;
+        [Tooltip("The strong beam shuts off after the attack button has been held this long.")]
         [Min(0.5f)] public float maxHoldTime = 5f;
-        [Tooltip("Seconds before the beam can be used again after it stops.")]
+        [Tooltip("Seconds before you can fire again after a weak tap.")]
+        [Min(0f)] public float tapCooldown = 0.2f;
+        [Tooltip("Seconds before you can fire again after the strong beam stops.")]
         [Min(0f)] public float cooldown = 0.5f;
-        [Min(0.5f)] public float minLength = 3f;
-        [Min(0.5f)] public float maxLength = 7f;
-        [Min(0.1f)] public float minWidth = 0.35f;
-        [Min(0.1f)] public float maxWidth = 1.4f;
 
-        [Header("Damage")]
-        [Tooltip("Damage per second to a foe in the beam, at the start of the hold.")]
-        [Min(0f)] public float minDamagePerSecond = 12f;
-        [Tooltip("Damage per second at full charge.")]
-        [Min(0f)] public float maxDamagePerSecond = 45f;
-        [Tooltip("Seconds between damage ticks.")]
+        [Header("Tap beam (weak)")]
+        [Min(0.5f)] public float tapLength = 4f;
+        [Min(0.05f)] public float tapWidth = 0.3f;
+        [Tooltip("Damage of the single hit a tap does to every foe in the beam.")]
+        [Min(0f)] public float tapDamage = 6f;
+        [Tooltip("How far the tap shoves a foe, in Unity units.")]
+        [Min(0f)] public float tapKnockback = 0.3f;
+
+        [Header("Hold beam (strong)")]
+        [Min(0.5f)] public float holdLength = 7f;
+        [Min(0.1f)] public float holdWidth = 1f;
+        [Tooltip("Damage per second to a foe in the strong beam. It is the same the whole time the beam is on.")]
+        [Min(0f)] public float holdDamagePerSecond = 35f;
+        [Tooltip("Seconds between damage ticks of the strong beam.")]
         [Min(0.05f)] public float tickTime = 0.15f;
-        [Tooltip("How far each tick shoves a foe, in Unity units.")]
+        [Tooltip("How far each tick of the strong beam shoves a foe, in Unity units.")]
         [Min(0f)] public float tickKnockback = 0.12f;
 
         [Header("Holding an object")]
@@ -64,8 +80,10 @@ public class PulseBeamTool : PlayerTool
     private readonly Settings s;
 
     private bool active;
+    private bool strong;      // false = weak tap beam, true = strong hold beam
+    private bool letGo;       // the button was released during the weak phase, so this shot stays a tap
+    private bool tapHit;      // the tap's single hit has been dealt
     private float holdTime;
-    private float charge;
     private float tickTimer;
     private float cooldownLeft;
     private float cooldownTotal;
@@ -94,7 +112,16 @@ public class PulseBeamTool : PlayerTool
     public override bool IsBusy { get { return active; } }
     public override bool WantsSwitchKeys { get { return carried != null; } }
 
-    public override float ChargeFraction { get { return active ? charge : 0f; } }
+    // Fills up while you hold toward the strong beam, then stays full while it is firing.
+    public override float ChargeFraction
+    {
+        get
+        {
+            if (!active) return 0f;
+            if (strong) return 1f;
+            return letGo ? 0f : Mathf.Clamp01(holdTime / Mathf.Max(0.05f, s.holdThreshold));
+        }
+    }
 
     public override float CooldownFraction
     {
@@ -125,19 +152,33 @@ public class PulseBeamTool : PlayerTool
     {
         if (!active)
         {
-            if (owner.AttackPressedNow && cooldownLeft <= 0f) StartBeam();
-            return;
-        }
-
-        if (!owner.AttackHeldNow)
-        {
-            StopBeam();
-            return;
+            if (!owner.AttackPressedNow || cooldownLeft > 0f) return;
+            StartBeam();   // the weak beam fires this same frame, so even a one-frame tap lands
         }
 
         holdTime += dt;
-        charge = Mathf.Clamp01(holdTime / Mathf.Max(0.1f, s.chargeTime));
-        if (holdTime >= s.maxHoldTime)
+        bool holding = owner.AttackHeldNow;
+
+        if (!strong)
+        {
+            // Weak phase: a tap, unless the button stays down until the threshold.
+            if (!holding) letGo = true;
+
+            if (letGo)
+            {
+                if (holdTime >= s.tapMinTime)
+                {
+                    StopBeam();
+                    return;
+                }
+            }
+            else if (holdTime >= s.holdThreshold)
+            {
+                strong = true;
+                tickTimer = Mathf.Max(0.05f, s.tickTime);   // the strong beam bites right away
+            }
+        }
+        else if (!holding || holdTime >= s.maxHoldTime)
         {
             StopBeam();
             return;
@@ -180,11 +221,13 @@ public class PulseBeamTool : PlayerTool
     private void StartBeam()
     {
         active = true;
+        strong = false;
+        letGo = false;
+        tapHit = false;
         holdTime = 0f;
-        charge = 0f;
         tickTimer = 0f;
         dir = owner.FacingVector;
-        beamLength = s.minLength;
+        beamLength = s.tapLength;
     }
 
     private void StopBeam()
@@ -195,22 +238,26 @@ public class PulseBeamTool : PlayerTool
             carried = null;
         }
 
-        active = false;
-        charge = 0f;
-        holdTime = 0f;
-        cooldownTotal = Cooldown(s.cooldown);
+        cooldownTotal = Cooldown(strong ? s.cooldown : s.tapCooldown);
         cooldownLeft = cooldownTotal;
+
+        active = false;
+        strong = false;
+        letGo = false;
+        tapHit = false;
+        holdTime = 0f;
 
         if (outer != null) outer.enabled = false;
         if (core != null) core.enabled = false;
     }
 
-    // Works out how far the beam reaches this frame, picks up an object it meets, and hurts what is inside it on every tick.
+    // Works out how far the beam reaches this frame, lets the strong beam pick up an object it meets,
+    // and hurts what is inside the beam (once for a tap, on every tick for the strong beam).
     private void UpdateBeam(float dt)
     {
         Vector2 origin = (Vector2)owner.HandGround + dir * 0.2f;
-        float maxLength = Mathf.Lerp(s.minLength, s.maxLength, charge);
-        float width = Mathf.Lerp(s.minWidth, s.maxWidth, charge);
+        float maxLength = strong ? s.holdLength : s.tapLength;
+        float width = strong ? s.holdWidth : s.tapWidth;
         float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
 
         float wallDistance = maxLength;
@@ -249,8 +296,8 @@ public class PulseBeamTool : PlayerTool
             if (owner.IsWall(c, false)) wallDistance = Mathf.Min(wallDistance, d);
         }
 
-        // An object is the first thing in the way (no foe in front of it, no wall): latch on and pick it up.
-        if (objectRoot != null && objectDistance < wallDistance && objectDistance < foeDistance)
+        // Only the strong beam picks things up. An object is the first thing in the way (no foe in front of it, no wall): latch on.
+        if (strong && objectRoot != null && objectDistance < wallDistance && objectDistance < foeDistance)
         {
             CarriedObject grabbed = new CarriedObject();
             if (grabbed.Begin(objectRoot, owner, objectMarker))
@@ -263,17 +310,25 @@ public class PulseBeamTool : PlayerTool
 
         beamLength = Mathf.Min(maxLength, wallDistance);
 
-        tickTimer += dt;
-        float tick = Mathf.Max(0.05f, s.tickTime);
-        if (tickTimer >= tick)
+        if (strong)
         {
-            tickTimer -= tick;
-            float perSecond = Mathf.Lerp(s.minDamagePerSecond, s.maxDamagePerSecond, charge);
-            HurtInBeam(origin, beamLength, width, angle, Damage(perSecond) * tick);
+            tickTimer += dt;
+            float tick = Mathf.Max(0.05f, s.tickTime);
+            if (tickTimer >= tick)
+            {
+                tickTimer -= tick;
+                HurtInBeam(origin, beamLength, width, angle, Damage(s.holdDamagePerSecond) * tick, s.tickKnockback);
+            }
+        }
+        else if (!tapHit)
+        {
+            // A tap is one clean hit the moment it fires.
+            tapHit = true;
+            HurtInBeam(origin, beamLength, width, angle, Damage(s.tapDamage), s.tapKnockback);
         }
     }
 
-    private void HurtInBeam(Vector2 origin, float length, float width, float angle, float damage)
+    private void HurtInBeam(Vector2 origin, float length, float width, float angle, float damage, float knockback)
     {
         Vector2 center = origin + dir * (length * 0.5f);
         int count = Physics2D.OverlapBox(center, new Vector2(length, width), angle, owner.FoeFilter, overlap);
@@ -288,12 +343,12 @@ public class PulseBeamTool : PlayerTool
             FoeController foe = c.GetComponentInParent<FoeController>();
             if (foe != null)
             {
-                if (!foe.IsDead && tickFoes.Add(foe)) owner.DamageFoe(foe, damage, dir, s.tickKnockback);
+                if (!foe.IsDead && tickFoes.Add(foe)) owner.DamageFoe(foe, damage, dir, knockback);
                 continue;
             }
 
             CoopHealth other = c.GetComponentInParent<CoopHealth>();
-            if (other != null && tickPlayers.Add(other)) owner.PvpTryHurt(other, damage, dir, s.tickKnockback);
+            if (other != null && tickPlayers.Add(other)) owner.PvpTryHurt(other, damage, dir, knockback);
         }
     }
 
@@ -333,9 +388,10 @@ public class PulseBeamTool : PlayerTool
         }
         else
         {
+            // Each beam has a fixed size: the tap is thin, the hold beam is wide. Only the small shimmer changes.
             to = from + dir * beamLength;
-            width = Mathf.Lerp(s.minWidth, s.maxWidth, charge) * pulse;
-            outerColor.a = 0.4f;
+            width = (strong ? s.holdWidth : s.tapWidth) * pulse;
+            outerColor.a = strong ? 0.5f : 0.4f;
         }
 
         ToolDraw.Bar(outer, from, to, width, outerColor, z);
