@@ -25,8 +25,8 @@ using Cainos.PixelArtTopDown_Basic;
 ///   Attack (tap)       swing the sword the way the player is facing. The blade always chops DOWNWARD on screen.
 ///   Attack (keep held) the swing happens straight away, then a charge starts. When the player GLOWS the spin is ready:
 ///                      let go for a full 360-degree spin that hits every foe around you.
-///   It knocks foes back, slows them, and has a chance to freeze them solid (they turn blue and can't move or attack). The blade throws
-///   ice sparks (SwordElementFx.cs).
+///   It knocks foes back, slows them, and has a chance to freeze them solid (they turn blue and can't move or attack, and their sprite and
+///   animation hold still until they thaw: FrozenFoeHold.cs, which this script adds by itself). The blade throws ice sparks (SwordElementFx.cs).
 ///
 /// Notebook open (or FoeController.Frozen) = nothing works, same as the foes. The one exception is the Scanner Lens, which freezes the
 /// stage itself and keeps running while it does.
@@ -1560,7 +1560,11 @@ public class SwordController : MonoBehaviour
         }
         if (s.knockback > 0f) foe.Knockback(pushDirection, s.knockback);
         if (s.slowFactor < 1f) foe.ApplySlow(s.slowFactor, s.slowTime);
-        if (s.freezeChance > 0f && Random.value < s.freezeChance) foe.Freeze(s.freezeTime);
+        if (s.freezeChance > 0f && Random.value < s.freezeChance)
+        {
+            FrozenFoeHold.Hold(foe, s.freezeTime);   // the sprite and animation stop for the freeze, then go back to normal (FrozenFoeHold.cs)
+            foe.Freeze(s.freezeTime);
+        }
 
         if (debugLog)
         {
