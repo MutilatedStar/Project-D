@@ -604,6 +604,8 @@ public class SwordController : MonoBehaviour
     private ContactFilter2D solidFilter;
     private readonly Collider2D[] overlapBuffer = new Collider2D[32];
     private readonly HashSet<FoeController> hitFoes = new HashSet<FoeController>();
+    // One new object per swing / spin: a breakable takes only ONE hit from the same swing (a sweep checks it on many frames).
+    private object swingKey = new object();
     // PVP: the players already hit by this swing / spin (each player is hit at most once per swing, like foes), and their solid colliders.
     private readonly HashSet<CoopHealth> hitPlayers = new HashSet<CoopHealth>();
     private readonly Dictionary<CoopHealth, Collider2D> pvpColliders = new Dictionary<CoopHealth, Collider2D>();
@@ -1291,6 +1293,7 @@ public class SwordController : MonoBehaviour
         previousAngle = facingAngle + s.arc * 0.5f * sweepSign;
         hitFoes.Clear();
         hitPlayers.Clear();
+        swingKey = new object();
         bladeHitCount = 0;
         swinging = true;
 
@@ -1340,6 +1343,7 @@ public class SwordController : MonoBehaviour
         previousAngle = facingAngle;   // starts where the player is facing and turns clockwise
         hitFoes.Clear();
         hitPlayers.Clear();
+        swingKey = new object();
         bladeHitCount = 0;
         spinning = true;
 
@@ -1413,11 +1417,11 @@ public class SwordController : MonoBehaviour
 
         for (int i = 0; i < count; i++)
         {
-            // Breakable objects (crates, rubble...): one touch breaks them, and they don't use up a Max Targets slot.
+            // Breakable objects (crates, metal boxes, iron walls): a swing is ONE hit on each, and they don't use up a Max Targets slot.
             DestructibleObject breakable = overlapBuffer[i].GetComponentInParent<DestructibleObject>();
             if (breakable != null)
             {
-                breakable.HitByBlade(overlapBuffer[i], origin, activeReach, sweepTest);
+                breakable.HitByBlade(overlapBuffer[i], origin, activeReach, sweepTest, PlayerNumber, swingKey);
                 continue;
             }
 

@@ -8,7 +8,8 @@ using UnityEngine.Tilemaps;
 ///
 ///   Hover   while the boots are in hand the player floats a little (a glow under the feet). SwordController.IsHovering tells a floor trap
 ///           to skip a hovering player if you want that.
-///   Dash    tap the attack button: a quick dash the way the player is moving (or facing). It hurts every foe it passes through.
+///   Dash    tap the attack button: a quick dash the way the player is moving (or facing). It hurts every foe it passes through,
+///           and HITS a crate, metal box or iron wall it runs into (the dash stops there unless that breaks it).
 ///           The boots hold 2 dashes; each one comes back after the Cooldown, one at a time.
 ///   Super   hold the attack button: one super long dash that hits harder. It uses all the dash charges.
 ///   Buff    every dash gives a short speed buff.
@@ -55,6 +56,12 @@ public class MagicBootsTool : PlayerTool
         [Tooltip("Dash charges the super dash uses. If it is as many as the boots hold, it uses them all.")]
         [Range(1, 4)] public int superDashCost = 2;
 
+        [Header("Breaking objects")]
+        [Tooltip("Hits a normal dash deals to a crate, metal box or iron wall it runs into (a crate = 1 hit, a metal box = 3, an iron wall = 5). 0 = dashes ignore them.")]
+        [Min(0)] public int dashObjectHits = 1;
+        [Tooltip("Hits a super dash deals to it. At 3 a super dash breaks a metal box in one go.")]
+        [Min(0)] public int superDashObjectHits = 3;
+
         [Header("Speed buff (after a dash)")]
         [Tooltip("1.35 = 35% faster walking.")]
         [Min(1f)] public float speedBuffMultiplier = 1.35f;
@@ -98,6 +105,8 @@ public class MagicBootsTool : PlayerTool
     private float dashSpeed;
     private float dashDmg;
     private float dashKnock;
+    private int dashObjectHitsNow;
+    private object dashKey = new object();   // one per dash: a breakable takes only one hit from the same dash
     private readonly HashSet<FoeController> hitFoes = new HashSet<FoeController>();
     private readonly HashSet<CoopHealth> hitPlayers = new HashSet<CoopHealth>();
     private readonly List<Collider2D> ignoredFoeColliders = new List<Collider2D>();
@@ -267,6 +276,8 @@ public class MagicBootsTool : PlayerTool
         dashSpeed = distance / time;
         dashDmg = Damage(super ? s.superDashDamage : s.dashDamage);
         dashKnock = super ? s.superDashKnockback : s.dashKnockback;
+        dashObjectHitsNow = super ? s.superDashObjectHits : s.dashObjectHits;
+        dashKey = new object();
 
         hitFoes.Clear();
         hitPlayers.Clear();
@@ -297,6 +308,7 @@ public class MagicBootsTool : PlayerTool
         Vector2 pos = rb != null ? rb.position : (Vector2)owner.transform.position;
 
         IgnoreFoeColliders(pos);
+        if (rb != null && dashObjectHitsNow > 0) HitObjectsAhead(rb, step);
 
         float free = step;
         if (rb != null) free = ToolPhysics.FreeDistance(rb, dashDir, step, owner.SolidFilter, castBuffer, ignoreFoes);
@@ -313,6 +325,23 @@ public class MagicBootsTool : PlayerTool
         SpawnAfterImage(pos);
 
         if (free < step - 0.001f || dashLeft <= 0.001f) EndDash();
+    }
+
+    // A crate, metal box or iron wall right in the way takes the dash's hits. If that breaks it, its collider is gone before the
+    // dash measures how far it can go, so the dash carries straight on through; otherwise the dash stops against it.
+    private void HitObjectsAhead(Rigidbody2D rb, float step)
+    {
+        int count = rb.Cast(dashDir, owner.SolidFilter, castBuffer, step + ToolPhysics.Skin + 0.05f);
+        for (int i = 0; i < count; i++)
+        {
+            Collider2D c = castBuffer[i].collider;
+            if (c == null) continue;
+
+            DestructibleObject breakable = c.GetComponentInParent<DestructibleObject>();
+            if (breakable == null) continue;
+
+            breakable.HitByTool(c, castBuffer[i].point, dashDir, owner.PlayerNo, dashKey, dashObjectHitsNow);
+        }
     }
 
     private void HitAlongDash(Vector2 center)

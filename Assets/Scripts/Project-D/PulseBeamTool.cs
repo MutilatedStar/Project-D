@@ -7,6 +7,7 @@ using UnityEngine;
 ///
 ///   Hold the attack button and a beam shoots the way the player faces. The longer it is held the BIGGER it gets (longer and wider)
 ///   and the MORE damage per second it does. It hurts every foe inside it, and stops at walls.
+///   It also HITS a crate, metal box or iron wall it stops at: one hit every Object Hit Interval seconds (quicker the longer it is held).
 ///   If the first thing the beam touches is an interactable object (a ToolInteractable, or anything on the Interactable Mask layers) it
 ///   latches on and PICKS IT UP instead. While it holds the object:
 ///       Next weapon key  pushes the object further away from the player
@@ -48,6 +49,12 @@ public class PulseBeamTool : PlayerTool
         [Tooltip("How far each tick shoves a foe, in Unity units.")]
         [Min(0f)] public float tickKnockback = 0.12f;
 
+        [Header("Breaking objects")]
+        [Tooltip("A crate = 1 hit, a metal box = 3, an iron wall = 5. While the beam rests on one it deals a hit every this many seconds, at the start of the hold.")]
+        [Min(0.05f)] public float objectHitInterval = 0.7f;
+        [Tooltip("Seconds between hits at full charge. Smaller than the number above = the longer the beam is held, the faster things break.")]
+        [Min(0.05f)] public float objectHitIntervalFull = 0.3f;
+
         [Header("Holding an object")]
         [Tooltip("The closest the held object can be pulled to the player, in Unity units.")]
         [Min(0.3f)] public float minHoldDistance = 0.9f;
@@ -84,6 +91,17 @@ public class PulseBeamTool : PlayerTool
     private readonly Collider2D[] overlap = new Collider2D[32];
     private readonly HashSet<FoeController> tickFoes = new HashSet<FoeController>();
     private readonly HashSet<CoopHealth> tickPlayers = new HashSet<CoopHealth>();
+
+    // Breakable objects the beam is resting on this frame.
+    private struct ObjectTarget
+    {
+        public DestructibleObject breakable;
+        public Collider2D collider;
+        public Vector2 point;
+        public float distance;
+    }
+    private readonly List<ObjectTarget> objectTargets = new List<ObjectTarget>();
+    private float objectTimer;
 
     public PulseBeamTool(SwordController owner, Settings settings) : base(owner, settings)
     {
@@ -186,6 +204,8 @@ public class PulseBeamTool : PlayerTool
         tickTimer = 0f;
         dir = owner.FacingVector;
         beamLength = s.minLength;
+        objectTimer = 0f;
+        objectTargets.Clear();
     }
 
     private void StopBeam()
@@ -219,6 +239,7 @@ public class PulseBeamTool : PlayerTool
         float objectDistance = float.MaxValue;
         Transform objectRoot = null;
         ToolInteractable objectMarker = null;
+        objectTargets.Clear();
 
         int count = Physics2D.BoxCast(origin, new Vector2(0.15f, width), angle, dir, owner.FoeFilter, hits, maxLength);
         for (int i = 0; i < count; i++)
@@ -247,6 +268,18 @@ public class PulseBeamTool : PlayerTool
                 continue;
             }
 
+            // A breakable object stops the beam like a wall, and is hit while the beam rests on it (below).
+            DestructibleObject breakable = c.GetComponentInParent<DestructibleObject>();
+            if (breakable != null && breakable.IsBreakableAt(c, hits[i].point, dir))
+            {
+                ObjectTarget target = new ObjectTarget();
+                target.breakable = breakable;
+                target.collider = c;
+                target.point = hits[i].point;
+                target.distance = d;
+                objectTargets.Add(target);
+            }
+
             if (owner.IsWall(c, false)) wallDistance = Mathf.Min(wallDistance, d);
         }
 
@@ -264,6 +297,8 @@ public class PulseBeamTool : PlayerTool
 
         beamLength = Mathf.Min(maxLength, wallDistance);
 
+        HitBreakables(dt, wallDistance);
+
         tickTimer += dt;
         float tick = Mathf.Max(0.05f, s.tickTime);
         if (tickTimer >= tick)
@@ -271,6 +306,36 @@ public class PulseBeamTool : PlayerTool
             tickTimer -= tick;
             float perSecond = Mathf.Lerp(s.minDamagePerSecond, s.maxDamagePerSecond, charge);
             HurtInBeam(origin, beamLength, width, angle, Damage(perSecond) * tick);
+        }
+    }
+
+    // Hits the breakable objects the beam ends on (the ones at the wall distance, not any further back), on a timer that speeds up with the charge.
+    private void HitBreakables(float dt, float wallDistance)
+    {
+        bool any = false;
+        for (int i = 0; i < objectTargets.Count; i++)
+        {
+            if (objectTargets[i].distance <= wallDistance + 0.05f) { any = true; break; }
+        }
+
+        if (!any)
+        {
+            objectTimer = 0f;
+            return;
+        }
+
+        objectTimer += dt;
+        float every = Mathf.Max(0.05f, Mathf.Lerp(s.objectHitInterval, s.objectHitIntervalFull, charge));
+        if (objectTimer < every) return;
+        objectTimer = 0f;
+
+        object key = new object();   // one hit per crate per beat, even if a crate has several colliders
+        for (int i = 0; i < objectTargets.Count; i++)
+        {
+            ObjectTarget target = objectTargets[i];
+            if (target.distance > wallDistance + 0.05f) continue;
+            if (target.breakable == null || target.collider == null) continue;
+            target.breakable.HitByTool(target.collider, target.point, dir, owner.PlayerNo, key, 1);
         }
     }
 

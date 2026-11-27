@@ -1,11 +1,28 @@
+using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.Tilemaps;
 using Ilumisoft.HealthSystem;
 
 /// <summary>
-/// Something the sword breaks in ONE hit. Needs the updated SwordController, which calls HitByBlade() when a swing or
-/// spin touches it. It works in four ways, and picks the right one by itself:
+/// Something the tools break. Three TYPES decide how many hits it takes (the numbers are under "Types" in the Inspector):
+///
+///       Crate  1 hit          Metal Box  3 hits          Iron Wall  5 hits
+///
+/// What counts as ONE hit:
+///   Sword and Grapple Arm swipe   one swing / spin that touches it (the same swing never counts twice). SwordController calls HitByBlade().
+///   Pulse Beam                    one hit every Object Hit Interval seconds while the beam rests on it (faster the longer it is held).
+///   Magic Boots                   a dash that runs into it (a super dash is worth more hits). Not the Bubble Shield or the Scanner Lens.
+///   Grapple Arm hook              the hook landing on it (instead of pulling the player to it). Tools call HitByTool().
+/// A hit that does not break it fires On Hit and flashes its sprite white for a moment.
+///
+/// Which type a thing is: a crate (or tile) named in Breakable Tiles has the Kind written on its row. Everything else (a whole
+/// object this script sits on, a crate that is not in the list, a tile broken through Break Any Tile) is the Default Kind.
+///
+/// The Scanner Lens paints breakable objects RED all by itself: no ScannerMarker is needed (see IsRedUnderLens).
+///
+/// It works in four ways, and picks the right one by itself:
 ///
 ///   A normal object (a crate, barrel or pot that is its own sprite with a normal, non-trigger Collider2D):
 ///       put this on the object itself. The whole object breaks and gives Default Score.
@@ -55,7 +72,12 @@ public class DestructibleObject : MonoBehaviour
         public string tileName = "0x72_16x16DungeonTileset.v5 1_173";
         [Tooltip("Score for breaking one of these tiles.")]
         [Min(0)] public int score = 30;
+        [Tooltip("Crate, Metal Box or Iron Wall: how many hits this one takes (the numbers are set under Types below). A crate OBJECT with this name takes the same.")]
+        public ObjectKind kind = ObjectKind.Crate;
     }
+
+    /// <summary>How tough a breakable is. The number of hits each one takes is set in the Inspector (1 / 3 / 5 by default).</summary>
+    public enum ObjectKind { Crate, MetalBox, IronWall }
 
     // ------------------------------------------------------------ inspector
 
@@ -72,6 +94,22 @@ public class DestructibleObject : MonoBehaviour
 
     [Tooltip("Runs when something breaks: once for a whole object, once for EACH crate of a group, once for EACH tile on a Tilemap. Hook up a sound, a particle effect, a drop...")]
     public UnityEvent onBroken;
+
+    [Tooltip("Runs when a hit lands but it does NOT break yet (a metal box or an iron wall that took a hit). Hook up a clink sound or a spark.")]
+    public UnityEvent onHit;
+
+    [Header("Types (hits to break)")]
+    [Tooltip("The type of a whole object this script sits on, of a crate object that is not named in Breakable Tiles, and of every tile broken through Break Any Tile.")]
+    [SerializeField] private ObjectKind defaultKind = ObjectKind.Crate;
+    [Tooltip("Hits a Crate takes to break.")]
+    [SerializeField, Min(1)] private int crateHits = 1;
+    [Tooltip("Hits a Metal Box takes to break.")]
+    [SerializeField, Min(1)] private int metalBoxHits = 3;
+    [Tooltip("Hits an Iron Wall takes to break.")]
+    [SerializeField, Min(1)] private int ironWallHits = 5;
+    [Tooltip("ON: a hit that does not break it makes its sprite flash white for a moment.")]
+    [SerializeField] private bool flashOnHit = true;
+    [SerializeField, Min(0.01f)] private float flashSeconds = 0.08f;
 
     [Header("Score")]
     [Tooltip("Score for breaking a whole object (or one crate of a group), and for any tile when Break Any Tile is ticked. 0 = no score.")]
@@ -108,9 +146,29 @@ public class DestructibleObject : MonoBehaviour
 
     // ------------------------------------------------------------ state
 
-    // (tile asset, sprite it shows) -> score, or -1 when that tile may not break. Saves re-reading names every frame of a swing.
-    private readonly System.Collections.Generic.Dictionary<(TileBase, Sprite), int> scoreCache =
-        new System.Collections.Generic.Dictionary<(TileBase, Sprite), int>();
+    // What a tile is worth and how tough it is. score -1 = this tile may not break.
+    private struct TileInfo
+    {
+        public int score;
+        public ObjectKind kind;
+    }
+
+    // (tile asset, sprite it shows) -> its info. Saves re-reading names every frame of a swing.
+    private readonly Dictionary<(TileBase, Sprite), TileInfo> scoreCache = new Dictionary<(TileBase, Sprite), TileInfo>();
+
+    // The separate crates this object holds (each direct child with a solid collider), found at the start.
+    private readonly HashSet<Transform> crateParts = new HashSet<Transform>();
+
+    // Hits taken so far, for whatever has not broken yet.
+    private int wholeHits;
+    private readonly Dictionary<Transform, int> partHits = new Dictionary<Transform, int>();
+    private readonly Dictionary<(Tilemap, Vector3Int), int> tileHits = new Dictionary<(Tilemap, Vector3Int), int>();
+
+    // The last hitKey that touched a whole object / a crate / a tile, so one swing or dash never counts twice.
+    private readonly Dictionary<object, object> lastHitKey = new Dictionary<object, object>();
+
+    // Sprites that are flashing right now, with the colour to give back.
+    private readonly Dictionary<SpriteRenderer, Color> flashing = new Dictionary<SpriteRenderer, Color>();
 
     private bool holdsTilemap;     // this object is a Tilemap, or has one under it: it is never broken as a whole
     private bool splitIntoParts;   // this object holds several separate crates, and each breaks on its own
@@ -155,7 +213,8 @@ public class DestructibleObject : MonoBehaviour
         splitIntoParts = false;
         partsLeft = 0;
 
-        var crates = new System.Collections.Generic.HashSet<Transform>();
+        crateParts.Clear();
+        HashSet<Transform> crates = crateParts;
         foreach (Collider2D c in GetComponentsInChildren<Collider2D>())
         {
             if (c.isTrigger || c.transform == transform || IsTileCollider(c)) continue;
@@ -194,9 +253,11 @@ public class DestructibleObject : MonoBehaviour
     /// "insideSweep" says whether a world point lies inside the part of the arc the blade is passing over right now.
     /// "playerNumber" is the player who swung (1, 2...), if the caller knows it; leave it 0 and the points go to the player
     /// credited by the weapon (CoopScore.CreditedPlayer) or, failing that, the one nearest to "origin" (the sword's hand).
-    /// Returns how many things broke (a whole object or one crate counts as 1).
+    /// "hitKey" is ONE object per swing / spin: while it stays the same, a crate, tile or whole object takes only ONE hit from it
+    /// (a sweep looks at the same thing on many frames). Leave it null and every call counts as a hit.
+    /// Returns how many things BROKE (a whole object or one crate counts as 1). A hit that only dented it returns 0.
     /// </summary>
-    public int HitByBlade(Collider2D touched, Vector2 origin, float reach, System.Func<Vector2, bool> insideSweep, int playerNumber = 0)
+    public int HitByBlade(Collider2D touched, Vector2 origin, float reach, System.Func<Vector2, bool> insideSweep, int playerNumber = 0, object hitKey = null)
     {
         if (IsBroken || touched == null || insideSweep == null) return 0;
         if (!touched.enabled) return 0;   // a crate of this object that was broken a moment ago in the same swing
@@ -206,7 +267,7 @@ public class DestructibleObject : MonoBehaviour
         if (IsTileCollider(touched))
         {
             Tilemap map = touched.GetComponentInParent<Tilemap>();
-            if (map != null) return BreakTilesInSweep(map, origin, reach, insideSweep, playerNumber);
+            if (map != null) return BreakTilesInSweep(map, origin, reach, insideSweep, playerNumber, hitKey);
         }
 
         // Anything else is an OBJECT, even when it sits inside a Tilemap's hierarchy: crate sprites laid over the tiles are objects, not tiles.
@@ -219,16 +280,79 @@ public class DestructibleObject : MonoBehaviour
         // A Tilemap, or a parent with several crates: only the crate that was touched goes.
         if ((splitIntoParts || holdsTilemap) && touched.transform != transform)
         {
-            BreakPart(DirectChildOf(touched.transform), origin, playerNumber);
-            return 1;
+            return HitPart(DirectChildOf(touched.transform), origin, playerNumber, hitKey, 1);
         }
 
-        BreakWhole(origin, playerNumber);
-        return 1;
+        return HitWhole(origin, playerNumber, hitKey, 1);
     }
 
     /// <summary>
-    /// Older call, with no way to know WHICH crate or tile was touched. It still works on a single object, but on a Tilemap or a parent
+    /// For tools that are not a sweeping blade (Pulse Beam, Magic Boots dash, Grapple hook): hits the thing that "touched" belongs to.
+    /// "contactPoint" is where the tool touched it (RaycastHit2D.point) and "direction" the way the tool was travelling: on a Tilemap
+    /// the two pick the tile. "hits" is how many hits this touch is worth; "hitKey" works as in HitByBlade.
+    /// Returns how many things BROKE (0 if it only took a hit).
+    /// </summary>
+    public int HitByTool(Collider2D touched, Vector2 contactPoint, Vector2 direction, int playerNumber = 0, object hitKey = null, int hits = 1)
+    {
+        if (IsBroken || touched == null || hits <= 0) return 0;
+        if (!touched.enabled) return 0;   // a crate of this object that was broken a moment ago
+
+        if (IsTileCollider(touched))
+        {
+            Tilemap map = touched.GetComponentInParent<Tilemap>();
+            return map != null ? HitTileAt(map, contactPoint, direction, playerNumber, hitKey, hits) : 0;
+        }
+
+        // Same rules as the blade: an object on a Tilemap is a crate, and the Tilemap's own object is never broken as a whole.
+        if (holdsTilemap && touched.transform == transform) return 0;
+
+        if ((splitIntoParts || holdsTilemap) && touched.transform != transform)
+        {
+            return HitPart(DirectChildOf(touched.transform), contactPoint, playerNumber, hitKey, hits);
+        }
+
+        return HitWhole(contactPoint, playerNumber, hitKey, hits);
+    }
+
+    /// <summary>
+    /// For a tool that must tell a breakable from a wall BEFORE it hits (the Pulse Beam, the Grapple hook): would HitByTool() with these
+    /// arguments hit something that can break? False for a wall tile on a Tilemap that also holds crates, so the hook can still pull the player to it.
+    /// </summary>
+    public bool IsBreakableAt(Collider2D touched, Vector2 contactPoint, Vector2 direction)
+    {
+        if (IsBroken || touched == null || !touched.enabled) return false;
+
+        if (IsTileCollider(touched))
+        {
+            Tilemap map = touched.GetComponentInParent<Tilemap>();
+            if (map == null) return false;
+
+            Vector3Int cell;
+            TileInfo info;
+            TileBase tile;
+            Sprite sprite;
+            return FindTileAt(map, contactPoint, direction, out cell, out info, out tile, out sprite);
+        }
+
+        return !(holdsTilemap && touched.transform == transform);
+    }
+
+    /// <summary>
+    /// For the Scanner Lens: should the renderer on "t" be painted red? True for a whole breakable object and for each separate
+    /// crate of a group or of a Tilemap. A Tilemap itself is only painted when Break Any Tile is ON (every tile of it can break):
+    /// the lens swaps a whole renderer's look, so single tiles of a mixed Tilemap can't be coloured one by one.
+    /// </summary>
+    public bool IsRedUnderLens(Transform t)
+    {
+        if (IsBroken || t == null) return false;
+        if (t.GetComponent<Tilemap>() != null) return breakAnyTile;
+        if (!holdsTilemap && !splitIntoParts) return true;   // one breakable object: all of it
+        if (t == transform) return false;
+        return crateParts.Contains(DirectChildOf(t));
+    }
+
+    /// <summary>
+    /// Older call, with no way to know WHICH crate or tile was touched. It still works on a single object (as one hit), but on a Tilemap or a parent
     /// with several crates it would remove everything at once, so there it does nothing and says so. Update SwordController so it calls HitByBlade().
     /// </summary>
     public void Hit()
@@ -244,13 +368,109 @@ public class DestructibleObject : MonoBehaviour
             return;
         }
 
-        BreakWhole(transform.position, 0);
+        HitWhole(transform.position, 0, null, 1);   // one hit: a metal box or iron wall needs more of them
     }
 
     /// <summary>Breaks the whole object right now (also usable from other scripts or a UnityEvent). On a Tilemap or a group this removes EVERYTHING under it.</summary>
     public void Break()
     {
         BreakWhole(transform.position, 0);
+    }
+
+    // ------------------------------------------------------------ hits
+
+    private int HitsNeeded(ObjectKind kind)
+    {
+        switch (kind)
+        {
+            case ObjectKind.MetalBox: return Mathf.Max(1, metalBoxHits);
+            case ObjectKind.IronWall: return Mathf.Max(1, ironWallHits);
+            default: return Mathf.Max(1, crateHits);
+        }
+    }
+
+    // True if this hitKey already hit "thing" (a whole object, a crate Transform or a (map, cell) pair). Otherwise remembers it.
+    private bool AlreadyHitBy(object thing, object hitKey)
+    {
+        if (hitKey == null) return false;
+
+        object last;
+        if (lastHitKey.TryGetValue(thing, out last) && ReferenceEquals(last, hitKey)) return true;
+
+        lastHitKey[thing] = hitKey;
+        return false;
+    }
+
+    private int HitWhole(Vector2 creditAt, int playerNumber, object hitKey, int hits)
+    {
+        if (IsBroken || AlreadyHitBy(this, hitKey)) return 0;
+
+        wholeHits += hits;
+        if (wholeHits >= HitsNeeded(defaultKind))
+        {
+            BreakWhole(creditAt, playerNumber);
+            return 1;
+        }
+
+        GotHit(transform);
+        return 0;
+    }
+
+    private int HitPart(Transform part, Vector2 creditAt, int playerNumber, object hitKey, int hits)
+    {
+        if (part == null || AlreadyHitBy(part, hitKey)) return 0;
+
+        int taken;
+        partHits.TryGetValue(part, out taken);
+        taken += hits;
+
+        if (taken >= HitsNeeded(KindForCrate(part)))
+        {
+            partHits.Remove(part);
+            lastHitKey.Remove(part);
+            BreakPart(part, creditAt, playerNumber);
+            return 1;
+        }
+
+        partHits[part] = taken;
+        GotHit(part);
+        return 0;
+    }
+
+    // A hit that did not break it: the event, and a short white flash.
+    private void GotHit(Transform visual)
+    {
+        onHit.Invoke();
+        if (flashOnHit && visual != null && isActiveAndEnabled) StartCoroutine(Flash(visual));
+    }
+
+    private IEnumerator Flash(Transform root)
+    {
+        List<SpriteRenderer> mine = new List<SpriteRenderer>();
+        foreach (SpriteRenderer sr in root.GetComponentsInChildren<SpriteRenderer>())
+        {
+            if (sr == null || flashing.ContainsKey(sr)) continue;   // already flashing from an earlier hit
+
+            Color original = sr.color;
+            flashing[sr] = original;
+            Color bright = Color.Lerp(original, Color.white, 0.75f);
+            bright.a = original.a;
+            sr.color = bright;
+            mine.Add(sr);
+        }
+
+        yield return new WaitForSecondsRealtime(Mathf.Max(0.01f, flashSeconds));
+
+        for (int i = 0; i < mine.Count; i++)
+        {
+            SpriteRenderer sr = mine[i];
+            Color original;
+            if (flashing.TryGetValue(sr, out original))
+            {
+                flashing.Remove(sr);
+                if (sr != null) sr.color = original;
+            }
+        }
     }
 
     private void BreakWhole(Vector2 creditAt, int playerNumber)
@@ -284,25 +504,37 @@ public class DestructibleObject : MonoBehaviour
     // anything not in the list gives Default Score.
     private int ScoreForCrate(Transform crate)
     {
-        if (breakableTiles != null)
-        {
-            SpriteRenderer sr = crate.GetComponentInChildren<SpriteRenderer>(true);
-            string spriteName = (sr != null && sr.sprite != null) ? sr.sprite.name : null;
+        BreakableTile entry = FindCrateEntry(crate);
+        return entry != null ? entry.score : defaultScore;
+    }
 
-            for (int i = 0; i < breakableTiles.Length; i++)
-            {
-                BreakableTile entry = breakableTiles[i];
-                if (entry == null) continue;
-                if (NameMatches(crate.name, entry.tileName) || NameMatches(spriteName, entry.tileName)) return entry.score;
-            }
+    // A crate object has the type of the listed tile with the same name; anything not in the list is the Default Kind.
+    private ObjectKind KindForCrate(Transform crate)
+    {
+        BreakableTile entry = FindCrateEntry(crate);
+        return entry != null ? entry.kind : defaultKind;
+    }
+
+    private BreakableTile FindCrateEntry(Transform crate)
+    {
+        if (breakableTiles == null || crate == null) return null;
+
+        SpriteRenderer sr = crate.GetComponentInChildren<SpriteRenderer>(true);
+        string spriteName = (sr != null && sr.sprite != null) ? sr.sprite.name : null;
+
+        for (int i = 0; i < breakableTiles.Length; i++)
+        {
+            BreakableTile entry = breakableTiles[i];
+            if (entry == null) continue;
+            if (NameMatches(crate.name, entry.tileName) || NameMatches(spriteName, entry.tileName)) return entry;
         }
-        return defaultScore;
+        return null;
     }
 
     // ------------------------------------------------------------ tiles
 
     // Breaks every allowed tile whose nearest point to the sword's hand is within reach AND inside the arc being swept.
-    private int BreakTilesInSweep(Tilemap map, Vector2 origin, float reach, System.Func<Vector2, bool> insideSweep, int playerNumber)
+    private int BreakTilesInSweep(Tilemap map, Vector2 origin, float reach, System.Func<Vector2, bool> insideSweep, int playerNumber, object hitKey)
     {
         BoundsInt used = map.cellBounds;
         if (used.size.x <= 0 || used.size.y <= 0) return 0;
@@ -340,19 +572,81 @@ public class DestructibleObject : MonoBehaviour
 
                 // Only a tile that is really under the blade is checked against the list.
                 Sprite sprite = map.GetSprite(cell);
-                if (!TryGetTileScore(tile, sprite, out int score))
+                if (!TryGetTileInfo(tile, sprite, out TileInfo info))
                 {
                     ReportUnlistedTile(tile, sprite);
                     continue;
                 }
 
-                map.SetTile(cell, null);                 // only THIS tile goes; the Tilemap's collider updates by itself
-                broken++;
-                Award(score, origin, playerNumber);
-                onBroken.Invoke();
+                if (HitTile(map, cell, info, origin, playerNumber, hitKey, 1)) broken++;
             }
         }
         return broken;
+    }
+
+    // One hit on one tile. It goes when it has taken as many hits as its type needs (only THIS tile goes; the Tilemap's collider updates by itself).
+    private bool HitTile(Tilemap map, Vector3Int cell, TileInfo info, Vector2 creditAt, int playerNumber, object hitKey, int hits)
+    {
+        (Tilemap, Vector3Int) key = (map, cell);
+        if (AlreadyHitBy(key, hitKey)) return false;
+
+        int taken;
+        tileHits.TryGetValue(key, out taken);
+        taken += hits;
+
+        if (taken >= HitsNeeded(info.kind))
+        {
+            tileHits.Remove(key);
+            lastHitKey.Remove(key);
+            map.SetTile(cell, null);
+            Award(info.score, creditAt, playerNumber);
+            onBroken.Invoke();
+            return true;
+        }
+
+        tileHits[key] = taken;
+        onHit.Invoke();
+        return false;
+    }
+
+    private static readonly float[] TileProbes = { 0.05f, 0.2f, -0.05f };
+
+    // A tool touched the Tilemap's collider at "point" travelling along "direction": the tile is just inside the surface it touched.
+    // Finds that tile. True if it is one that may break; false if there is no tile or it is a wall (tile and sprite say which, when there is one).
+    private bool FindTileAt(Tilemap map, Vector2 point, Vector2 direction, out Vector3Int cell, out TileInfo info, out TileBase tile, out Sprite sprite)
+    {
+        Vector2 dir = direction.sqrMagnitude > 0.0001f ? direction.normalized : Vector2.zero;
+        cell = Vector3Int.zero;
+        info = new TileInfo();
+        sprite = null;
+
+        for (int i = 0; i < TileProbes.Length; i++)
+        {
+            Vector2 p = point + dir * TileProbes[i];
+            cell = map.WorldToCell(new Vector3(p.x, p.y, map.transform.position.z));
+            tile = map.GetTile(cell);
+            if (tile == null) continue;
+
+            sprite = map.GetSprite(cell);
+            return TryGetTileInfo(tile, sprite, out info);
+        }
+
+        tile = null;
+        return false;
+    }
+
+    private int HitTileAt(Tilemap map, Vector2 point, Vector2 direction, int playerNumber, object hitKey, int hits)
+    {
+        Vector3Int cell;
+        TileInfo info;
+        TileBase tile;
+        Sprite sprite;
+        if (!FindTileAt(map, point, direction, out cell, out info, out tile, out sprite))
+        {
+            if (tile != null) ReportUnlistedTile(tile, sprite);   // a wall: nothing happens
+            return 0;
+        }
+        return HitTile(map, cell, info, point, playerNumber, hitKey, hits) ? 1 : 0;
     }
 
     // Tiles already reported, so each kind of tile under the blade is mentioned only once.
@@ -370,18 +664,18 @@ public class DestructibleObject : MonoBehaviour
     }
 
     // Looks the tile up in the list (by Tile asset name or Sprite name); falls back to Break Any Tile. Cached per tile + sprite.
-    private bool TryGetTileScore(TileBase tile, Sprite sprite, out int score)
+    private bool TryGetTileInfo(TileBase tile, Sprite sprite, out TileInfo info)
     {
         var key = (tile, sprite);
-        if (!scoreCache.TryGetValue(key, out score))
+        if (!scoreCache.TryGetValue(key, out info))
         {
-            score = WorkOutTileScore(tile, sprite);
-            scoreCache[key] = score;
+            info = WorkOutTileInfo(tile, sprite);
+            scoreCache[key] = info;
         }
-        return score >= 0;
+        return info.score >= 0;
     }
 
-    private int WorkOutTileScore(TileBase tile, Sprite sprite)
+    private TileInfo WorkOutTileInfo(TileBase tile, Sprite sprite)
     {
         if (breakableTiles != null)
         {
@@ -392,11 +686,13 @@ public class DestructibleObject : MonoBehaviour
 
                 if (NameMatches(tile.name, entry.tileName) || (sprite != null && NameMatches(sprite.name, entry.tileName)))
                 {
-                    return entry.score;
+                    return new TileInfo { score = entry.score, kind = entry.kind };
                 }
             }
         }
-        return breakAnyTile ? defaultScore : -1;
+
+        if (breakAnyTile) return new TileInfo { score = defaultScore, kind = defaultKind };
+        return new TileInfo { score = -1, kind = ObjectKind.Crate };
     }
 
     // Capitals, spaces, underscores and dashes are ignored: "0x72_16x16DungeonTileset.v5 1_173" and "0x72 16x16 dungeontileset.v5 1 173" are the same.

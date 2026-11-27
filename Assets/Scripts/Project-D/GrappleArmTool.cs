@@ -6,7 +6,8 @@ using TopDownJump = Cainos.PixelArtTopDown_Basic.TopDownJump;
 /// <summary>
 /// GRAPPLE ARM (built by SwordController; nothing to add by hand).
 ///
-///   Tap   a quick swipe in front of the player that hurts foes (and breaks crates, like the sword did).
+///   Tap   a quick swipe in front of the player that hurts foes and hits crates, metal boxes and iron walls (one hit per swipe).
+///   Hook  the hook also HITS a breakable object it lands on (Hook Object Hits) instead of pulling the player to it; if that breaks it, the hook flies on.
 ///   Hold  charge the grapple: the longer the button is held the FURTHER the hook goes (a faint line shows how far). Let go to fire it.
 ///           Wall          the hook grabs on and PULLS THE PLAYER to it. A wall is whatever the game's wall check says, or anything whose name
 ///                         (or its parent's name) contains one of the Pull Names ("Wall" by default).
@@ -72,6 +73,11 @@ public class GrappleArmTool : PlayerTool
         [Tooltip("ON: the grapple cannot be fired while the player is falling down a level (a drop, a trapdoor), so it cannot be used to avoid the fall.")]
         public bool lockWhileFalling = true;
 
+        [Header("Breaking objects")]
+        [Tooltip("Hits the hook deals to a crate, metal box or iron wall it lands on (a crate = 1 hit, a metal box = 3, an iron wall = 5). " +
+                 "The hook hits it INSTEAD of pulling the player to it, and flies on if it broke. 0 = the hook ignores breakables, as before.")]
+        [Min(0)] public int hookObjectHits = 1;
+
         [Header("Reeling in an object")]
         [Min(2f)] public float reelSpeed = 14f;
         [Tooltip("Gap left between the player and the reeled-in object.")]
@@ -116,6 +122,7 @@ public class GrappleArmTool : PlayerTool
     private readonly System.Func<Vector2, bool> sweepTest;
     private readonly HashSet<FoeController> swipeFoes = new HashSet<FoeController>();
     private readonly HashSet<CoopHealth> swipePlayers = new HashSet<CoopHealth>();
+    private object swipeKey = new object();   // one per swipe: a breakable takes only one hit from the same swipe
 
     // hook
     private Vector2 hookDir = Vector2.down;
@@ -315,6 +322,7 @@ public class GrappleArmTool : PlayerTool
         swipeCurrentAngle = swipePrevious;
         swipeFoes.Clear();
         swipePlayers.Clear();
+        swipeKey = new object();
         mode = Mode.Swiping;
     }
 
@@ -355,7 +363,7 @@ public class GrappleArmTool : PlayerTool
             DestructibleObject breakable = c.GetComponentInParent<DestructibleObject>();
             if (breakable != null)
             {
-                breakable.HitByBlade(c, origin, s.swipeReach, sweepTest);
+                breakable.HitByBlade(c, origin, s.swipeReach, sweepTest, owner.PlayerNo, swipeKey);
                 continue;
             }
 
@@ -423,6 +431,7 @@ public class GrappleArmTool : PlayerTool
         FoeController bestFoe = null;
         Transform bestRoot = null;
         ToolInteractable bestMarker = null;
+        DestructibleObject bestBreakable = null;
 
         for (int i = 0; i < count; i++)
         {
@@ -433,6 +442,7 @@ public class GrappleArmTool : PlayerTool
             FoeController foe = c.GetComponentInParent<FoeController>();
             Transform root = null;
             ToolInteractable marker = null;
+            DestructibleObject breakable = null;
 
             if (foe != null)
             {
@@ -446,10 +456,17 @@ public class GrappleArmTool : PlayerTool
             else
             {
                 root = owner.FindInteractable(c, true, out marker);
+                if (root == null && s.hookObjectHits > 0 && !c.isTrigger)
+                {
+                    breakable = c.GetComponentInParent<DestructibleObject>();
+                    if (breakable != null && !breakable.IsBreakableAt(c, hits[i].point, hookDir)) breakable = null;   // a wall tile on the same Tilemap still pulls
+                }
+
                 bool pullTo = IsPullTarget(c);
 
-                // An interactable is reeled in, unless Pull To Everything is on and the player can really be pulled to it.
-                if (root != null && !(s.pullToEverything && pullTo)) kind = 2;
+                // A breakable object is hit. An interactable is reeled in, unless Pull To Everything is on and the player can really be pulled to it.
+                if (breakable != null) kind = 4;
+                else if (root != null && !(s.pullToEverything && pullTo)) kind = 2;
                 else if (pullTo) kind = 3;
                 else continue;
             }
@@ -462,6 +479,7 @@ public class GrappleArmTool : PlayerTool
                 bestFoe = foe;
                 bestRoot = root;
                 bestMarker = marker;
+                bestBreakable = breakable;
             }
         }
 
@@ -481,6 +499,12 @@ public class GrappleArmTool : PlayerTool
             Vector2 pull = toPlayer.sqrMagnitude > 0.0001f ? toPlayer.normalized : -hookDir;
             owner.DamageFoe(bestFoe, Damage(s.hookDamage), pull, s.foePullDistance);
             StartRetract();
+        }
+        else if (bestKind == 4)
+        {
+            // A crate, metal box or iron wall: the hook hits it. If that breaks it the hook flies on, otherwise it comes back.
+            int broke = bestBreakable.HitByTool(hits[bestIndex].collider, hits[bestIndex].point, hookDir, owner.PlayerNo, null, s.hookObjectHits);
+            if (broke <= 0) StartRetract();
         }
         else if (bestKind == 2)
         {

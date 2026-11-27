@@ -12,6 +12,9 @@ using UnityEngine.UI;
 ///   Hold  the same, and after a short moment the whole stage FREEZES: foes, traps, cooldowns, everything except the pause screen,
 ///         and nothing can hurt anybody. The camera is yours: use the pan keys to look around the stage. Let go to carry on.
 ///
+/// Breakable objects (a DestructibleObject: crates, metal boxes, iron walls) are painted RED too, like traps, with nothing added to them
+/// (no ScannerMarker). They have no arrow.
+///
 /// How it finds things: a ScannerMarker on an object wins. Otherwise an object counts as a trap / collectable when its layer is ticked
 /// in Trap Layers / Collectable Layers, or when its name (or its parent's) contains one of the words in Trap Names / Collectable Names.
 /// </summary>
@@ -502,6 +505,16 @@ public class ScannerLensTool : PlayerTool
 
         if (!t.IsChildOf(owner.transform))
         {
+            // A breakable object is red without any marker. (A ScannerMarker on it still wins, so it can be set to Ignore.)
+            DestructibleObject breakable = t.GetComponentInParent<DestructibleObject>();
+            if (breakable != null && t.GetComponentInParent<ScannerMarker>() == null && breakable.IsRedUnderLens(t))
+            {
+                result.kind = ScanKind.Trap;
+                result.root = breakable.transform;
+                cache[t] = result;
+                return result;
+            }
+
             Transform cur = t;
             for (int depth = 0; depth < 4 && cur != null; depth++)
             {
