@@ -89,12 +89,6 @@ namespace Cainos.PixelArtTopDown_Basic
     ///                taken by something solid, the fall waits (up to "Blocked Landing Seconds") for it to clear. Landing can hurt ("Fall Damage").
     ///                FallTo(level) starts a fall from code (a trapdoor, a bridge that gives way).
     ///
-    /// ENGINE       The levels and the fall are shared with the rest of the game. TopDownLevelWorld holds the ladder of levels and the fall numbers for EVERYTHING,
-    ///              and TopDownFaller does the same fall for foes, crates and items. Tick "Use World Settings" and the player takes the levels and the fall numbers
-    ///              from the world (and from a TopDownLevelToggle on this object, if it has one) instead of from this component. Left OFF, the values here are used
-    ///              exactly as before. The jump itself (height, duration, what it can jump over or onto) always stays here. Because this component answers to
-    ///              ILevelFaller, a TopDownDropZone and TopDownLevelWorld.DropAllTo can drop the player like anything else.
-    ///
     /// TopDownCharacterController asks for the jump (TryJump) and reads IsInAir / SpeedMultiplier. This component does the rest.
     /// Needs CoopHealth.cs (the Airborne flag) and the player's solid (non-trigger) collider on this object or a child.
     ///
@@ -104,7 +98,7 @@ namespace Cainos.PixelArtTopDown_Basic
     /// </summary>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(Rigidbody2D))]
-    public class TopDownJump : MonoBehaviour, ILevelFaller
+    public class TopDownJump : MonoBehaviour
     {
         // ------------------------------------------------------------ inspector
 
@@ -189,17 +183,13 @@ namespace Cainos.PixelArtTopDown_Basic
         [Tooltip("A landing that is blocked (inside something solid) keeps the player gliding at ground height this long, then sends them back to where the jump started.")]
         [SerializeField, Min(0.1f)] private float blockedLandingSeconds = 1f;
 
-        [Header("Engine: share the levels and the fall with the rest of the game")]
-        [Tooltip("OFF: the Levels and every Fall number in this component are used, exactly as before. " +
-                 "ON: they come from the TopDownLevelWorld in the scene instead (and from a TopDownLevelToggle on this object, if it has one): the same numbers every foe, crate and item uses. " +
-                 "What is typed here for them is then ignored. Fall When Unsupported and Unsupported Delay do not apply to the player, which falls by the rules of its own jump. " +
-                 "The jump itself (height, duration, Jump Over / Jump On, draw order) always stays here.")]
-        [SerializeField] private bool useWorldSettings = false;
-
         [Header("Debug")]
         [Tooltip("Prints, once at the start, the Jump keys this player really answers to and where they come from. Switch it off once the keys are right. " +
                  "Also in Play mode: the three dots of this component > Log Jump Keys.")]
         [SerializeField] private bool logKeysAtStart = true;
+        [Tooltip("Prints, at every landing that does NOT climb a level, what was under the player's feet and the rule it got (Solid / Over / Climb), " +
+                 "and which collider blocks a landing that is stuck. Use it to find out why a jump onto a ledge does not climb. Switch it off once it works.")]
+        [SerializeField] private bool logLandings = true;
 
         // ------------------------------------------------------------ what other scripts can use
 
@@ -356,22 +346,6 @@ namespace Cainos.PixelArtTopDown_Basic
         private const int ShadowTextureHeight = 8;
         private const float ShadowPixelsPerUnit = 16f;
 
-        /// <summary>The small pixel shadow every jump uses, made once. TopDownFaller draws its fall shadow with the same sprite.</summary>
-        public static Sprite SharedShadowSprite
-        {
-            get
-            {
-                if (madeShadowSprite == null) madeShadowSprite = CreateShadowSprite();
-                return madeShadowSprite;
-            }
-        }
-
-        /// <summary>The size of that shadow sprite in world units, before any scaling.</summary>
-        public static Vector2 SharedShadowNaturalSize
-        {
-            get { return new Vector2(ShadowTextureWidth / ShadowPixelsPerUnit, ShadowTextureHeight / ShadowPixelsPerUnit); }
-        }
-
         // ------------------------------------------------------------ setup
 
         private void Awake()
@@ -388,7 +362,6 @@ namespace Cainos.PixelArtTopDown_Basic
             BuildSpriteProxy();
             BuildShadow();
             ResolveNeverDrawOver();
-            if (useWorldSettings) ApplyWorldSettings();   // before BuildLevels: it reads Levels
             BuildLevels();
 
             jumpOver.Prepare(name, this);
@@ -430,45 +403,12 @@ namespace Cainos.PixelArtTopDown_Basic
         private void OnEnable()
         {
             FloorController.FloorChanged += HandleFloorChanged;
-            TopDownLevelWorld.Register(this);   // so TopDownLevelWorld.DropAllTo reaches the player too
         }
 
         private void OnDisable()
         {
             FloorController.FloorChanged -= HandleFloorChanged;
-            TopDownLevelWorld.Unregister(this);
             ResetToGround();
-        }
-
-        // "Use World Settings": the levels and every Fall number come from the TopDownLevelWorld (and a TopDownLevelToggle on this object), the same as for
-        // everything else that falls. Level 0 of the world's ladder is the ground, which for the player is simply the layers it starts on, so only the
-        // levels above it are copied into Levels. Nothing about the jump itself changes here.
-        private void ApplyWorldSettings()
-        {
-            TopDownLevelWorld world = TopDownLevelWorld.Active;
-            if (world == null) return;
-
-            TopDownLevelToggle toggle = GetComponent<TopDownLevelToggle>();
-            FallSettings settings = world.SettingsFor(gameObject, toggle);
-
-            int count = world.LevelCount;
-            if (count > 1)
-            {
-                levels = new JumpLevel[count - 1];
-                for (int i = 1; i < count; i++)
-                {
-                    WorldLevel step = world.LevelAt(i);
-                    levels[i - 1] = new JumpLevel { physicsLayer = step.physicsLayer, sortingLayer = step.sortingLayer };
-                }
-            }
-
-            fallEnabled = world.ShouldFall(gameObject, toggle) && settings.fallEnabled;
-            fallSecondsPerLevel = settings.fallSecondsPerLevel;
-            fallDamage = settings.fallDamage;
-            fallDamagePerLevel = settings.damagePerLevel;
-            safeFallLevels = settings.safeFallLevels;
-            heightPerLevel = settings.heightPerLevel;
-            blockedLandingSeconds = settings.blockedLandingSeconds;
         }
 
         // A door or the Shop moved the player: whatever they were jumping over or standing on is somewhere else now.
@@ -788,6 +728,8 @@ namespace Cainos.PixelArtTopDown_Basic
             blockedFor = 0f;
             arc = 0f;
             takeoffPosition = rb.position;
+            noClimbLogged = false;
+            blockedLogged = null;
 
             if (!airborneOrder.Contains(this)) airborneOrder.Add(this);   // drawn above everyone who took off before
 
@@ -963,6 +905,7 @@ namespace Cainos.PixelArtTopDown_Basic
 
             // A jump-on collider under the feet that we were not standing on yet: climb onto it.
             Collider2D climbOnto = FindNewSupport(feet, keep);
+            if (climbOnto == null) LogWhyNoClimb(feet);
 
             // Nothing new to climb onto: a support we only just left with the middle of the body, but still overlap, keeps us up.
             // (Letting go would turn its collision back on inside the player and shove them off. With something new to climb onto the
@@ -985,7 +928,11 @@ namespace Cainos.PixelArtTopDown_Basic
                 bool collidesThere = !Physics2D.GetIgnoreLayerCollision(destinationLayer, otherLayer);
                 bool collidesNow = fallEnabled && !Physics2D.GetIgnoreLayerCollision(currentPhysics, otherLayer);
                 if (!collidesThere && !collidesNow) continue;   // would not collide anyway
-                if (OverlapsBody(c)) return false;
+                if (OverlapsBody(c))
+                {
+                    LogBlockedLanding(c);
+                    return false;
+                }
             }
 
             ReleaseSupportsTo(keep, false);
@@ -999,6 +946,46 @@ namespace Cainos.PixelArtTopDown_Basic
             if (fallEnabled && supports.Count < appliedLevel) fallAfterLanding = true;
             else ApplyLevel(supports.Count);
             return true;
+        }
+
+        // ---- landing diagnostics (Log Landings). TryLand runs every frame while a landing is blocked, so each message is printed once per jump.
+        private bool noClimbLogged;
+        private Collider2D blockedLogged;
+
+        private void LogWhyNoClimb(Vector2 feet)
+        {
+            if (!logLandings || noClimbLogged) return;
+            noClimbLogged = true;
+
+            int n = Physics2D.OverlapPoint(feet, pointFilter, pointResults);
+            int shown = 0;
+            for (int i = 0; i < n; i++)
+            {
+                Collider2D c = pointResults[i];
+                if (c == null || c.transform.IsChildOf(transform)) continue;
+
+                shown++;
+                Debug.Log("TopDownJump on '" + name + "': no climb. Under the feet at " + feet + ": '" + c.name + "', physics layer " +
+                          LayerMask.LayerToName(c.gameObject.layer) + ", rule = " + RuleFor(c) +
+                          (RuleFor(c) == Rule.Climb ? " (already a support)" : "") + ".", c);
+            }
+
+            if (shown == 0)
+            {
+                Debug.Log("TopDownJump on '" + name + "': no climb. There is NO collider under the feet at " + feet + ", so there is nothing to land on. " +
+                          "Either the ledge's collider does not cover where the player lands (Jump On needs a collider over the whole raised area), " +
+                          "or the jump did not carry the player far enough.", this);
+            }
+        }
+
+        private void LogBlockedLanding(Collider2D blocker)
+        {
+            if (!logLandings || blockedLogged == blocker) return;
+            blockedLogged = blocker;
+
+            Debug.Log("TopDownJump on '" + name + "': landing blocked by '" + blocker.name + "' (physics layer " + LayerMask.LayerToName(blocker.gameObject.layer) +
+                      ", rule = " + RuleFor(blocker) + "). It was flown over and still overlaps the body, so the player glides until it is clear and is then sent " +
+                      "back to the take-off spot after " + blockedLandingSeconds + "s.", blocker);
         }
 
         private Collider2D FindNewSupport(Vector2 feet, int keep)
